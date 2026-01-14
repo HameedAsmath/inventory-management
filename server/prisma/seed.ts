@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/lib/prisma.js";
 import "dotenv/config";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +14,8 @@ async function deleteAllData(orderedFileNames: string[]) {
     return modelName.charAt(0).toUpperCase() + modelName.slice(1);
   });
 
-  for (const modelName of modelNames) {
+  // Delete in reverse to satisfy FK constraints (children before parents)
+  for (const modelName of [...modelNames].reverse()) {
     const model: any = prisma[modelName as keyof typeof prisma];
     if (model) {
       await model.deleteMany({});
