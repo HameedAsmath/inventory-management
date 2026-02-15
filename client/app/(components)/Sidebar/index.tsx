@@ -6,11 +6,13 @@ import {
   Archive,
   CircleDollarSign,
   Clipboard,
+  FileText,
   Layout,
   LucideIcon,
   Menu,
   SlidersHorizontal,
   User,
+  Users,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -122,6 +124,18 @@ const Sidebar = () => {
           href="/products"
           icon={Clipboard}
           label="Products"
+          isCollapsed={isSidebarCollapsed}
+        />
+        <SidebarLink
+          href="/customers"
+          icon={Users}
+          label="Customers"
+          isCollapsed={isSidebarCollapsed}
+        />
+        <SidebarLink
+          href="/billing"
+          icon={FileText}
+          label="Billing"
           isCollapsed={isSidebarCollapsed}
         />
         <SidebarLink

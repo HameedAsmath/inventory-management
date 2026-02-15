@@ -1,0 +1,26 @@
+[
+  {
+    "billingItemId": "770e8400-e29b-41d4-a716-446655440000",
+    "billingId": "660e8400-e29b-41d4-a716-446655440000",
+    "productId": "d35623ee-bef6-42b2-8776-2f99f8bb4782",
+    "quantity": 2,
+    "price": 456.04,
+    "subtotal": 912.08
+  },
+  {
+    "billingItemId": "770e8400-e29b-41d4-a716-446655440001",
+    "billingId": "660e8400-e29b-41d4-a716-446655440000",
+    "productId": "8ac1ac77-7358-425e-be16-0bdde9f02e59",
+    "quantity": 1,
+    "price": 899.05,
+    "subtotal": 899.05
+  },
+  {
+    "billingItemId": "770e8400-e29b-41d4-a716-446655440002",
+    "billingId": "660e8400-e29b-41d4-a716-446655440001",
+    "productId": "1afc136b-4d9f-4e8e-aace-8e1df908a404",
+    "quantity": 1,
+    "price": 264.37,
+    "subtotal": 264.37
+  }
+]

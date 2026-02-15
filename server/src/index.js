@@ -21,12 +21,10 @@ app.use(morgan("common"));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
-
 const port = process.env.PORT || 3001;
 app.listen(Number(port), "0.0.0.0", () => {
-  console.log(`Server is running on port ${port}`);
+    console.log(`Server is running on port ${port}`);
 });
-
 app.use("/dashboard", dashboardRoutes);
 app.use("/products", productRoutes);
 app.use("/users", userRoutes);

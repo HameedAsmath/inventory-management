@@ -10,25 +10,26 @@ datasource db {
 }
 
 model Users {
-  userId String @id
+  userId String @id @default(uuid())
   email String @unique
   name  String
 }
 
 model Products {
-  productId String @id
+  productId String @id @default(uuid())
   name String
   price Float
   rating Float?
   stockQuantity Int
   Sales Sales[]
   Purchases Purchases[]
+  BillingItem BillingItem[]
 }
 
 model Sales {
-  saleId String @id
+  saleId String @id @default(uuid())
   productId String
-  timestamp DateTime
+  timestamp DateTime @default(now())
   quantity Int
   unitPrice Float
   totalAmount Float
@@ -36,9 +37,9 @@ model Sales {
 }
 
 model Purchases {
-  purchaseId String @id
+  purchaseId String @id @default(uuid())
   productId String
-  timestamp DateTime
+  timestamp DateTime @default(now())
   quantity Int
   unitCost Float
   totalCost Float
@@ -46,33 +47,62 @@ model Purchases {
 }
 
 model SalesSummary {
-  salesSummaryId String @id
+  salesSummaryId String @id @default(uuid())
   totalValue Float
   changePercentage Float?
-  date DateTime
+  date DateTime @default(now())
 }
 
 model PurchaseSummary {
-  purchaseSummaryId String   @id
+  purchaseSummaryId String   @id @default(uuid())
   totalPurchased    Float
   changePercentage  Float?
-  date              DateTime
+  date              DateTime @default(now())
 }
 
 model ExpenseSummary {
-  expenseSummaryId String @id
+  expenseSummaryId String @id @default(uuid())
   totalExpenses Float
-  date DateTime
+  date DateTime @default(now())
   ExpenseByCategory ExpenseByCategory[]
 }
 
 model ExpenseByCategory {
-  expenseByCategoryId String @id
+  expenseByCategoryId String @id @default(uuid())
   expenseSummaryId String
   category String
   amount BigInt
-  date DateTime  
+  date DateTime @default(now())
   expenseSummary ExpenseSummary @relation(fields: [expenseSummaryId], references: [expenseSummaryId])
+}
+
+model Customer {
+  customerId String @id @default(uuid())
+  name String
+  email String? @unique
+  phone String?
+  address String?
+  Billing Billing[]
+}
+
+model Billing {
+  billingId String @id @default(uuid())
+  customerId String
+  totalAmount Float
+  timestamp DateTime @default(now())
+  customer Customer @relation(fields: [customerId], references: [customerId])
+  BillingItem BillingItem[]
+}
+
+model BillingItem {
+  billingItemId String @id @default(uuid())
+  billingId String
+  productId String
+  quantity Int
+  price Float
+  subtotal Float
+  billing Billing @relation(fields: [billingId], references: [billingId])
+  product Products @relation(fields: [productId], references: [productId])
 }
 
 
