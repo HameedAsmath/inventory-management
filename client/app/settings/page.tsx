@@ -2,83 +2,123 @@
 
 import React, { useState } from "react";
 import Header from "@/app/(components)/Header";
-
-type UserSetting = {
-  label: string;
-  value: string | boolean;
-  type: "text" | "toggle";
-};
-
-const mockSettings: UserSetting[] = [
-  { label: "Username", value: "john_doe", type: "text" },
-  { label: "Email", value: "john.doe@example.com", type: "text" },
-  { label: "Notification", value: true, type: "toggle" },
-  { label: "Dark Mode", value: false, type: "toggle" },
-  { label: "Language", value: "English", type: "text" },
-];
+import { useGetMeQuery, useUpdateMeMutation } from "@/app/state/api";
+import { Save, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const Settings = () => {
-  const [userSettings, setUserSettings] = useState<UserSetting[]>(mockSettings);
+  const { data: profile, isLoading } = useGetMeQuery();
+  const [updateMe, { isLoading: isSaving }] = useUpdateMeMutation();
 
-  const handleToggleChange = (index: number) => {
-    const settingsCopy = [...userSettings];
-    settingsCopy[index].value = !settingsCopy[index].value as boolean;
-    setUserSettings(settingsCopy);
+  const initialForm = React.useMemo(() => ({
+    name: profile?.name ?? "",
+    shopName: profile?.shopName ?? "",
+    shopAddress: profile?.shopAddress ?? "",
+    shopPincode: profile?.shopPincode ?? "",
+    shopContact: profile?.shopContact ?? "",
+    shopEmail: profile?.shopEmail ?? "",
+    shopGst: profile?.shopGst ?? "",
+  }), [profile]);
+
+  const [form, setForm] = useState(initialForm);
+  const [initialized, setInitialized] = useState(false);
+
+  if (profile && !initialized) {
+    setForm({
+      name: profile.name,
+      shopName: profile.shopName,
+      shopAddress: profile.shopAddress,
+      shopPincode: profile.shopPincode,
+      shopContact: profile.shopContact,
+      shopEmail: profile.shopEmail,
+      shopGst: profile.shopGst,
+    });
+    setInitialized(true);
+  }
+
+  const handleChange = (field: keyof typeof form, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
   };
+
+  const handleSave = async () => {
+    try {
+      await updateMe(form).unwrap();
+      toast.success("Settings saved successfully");
+    } catch {
+      // error toast is handled globally by the middleware
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <Header name="Settings" />
+        <div className="flex items-center justify-center mt-10">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      </div>
+    );
+  }
+
+  const fields: { label: string; key: keyof typeof form; placeholder: string }[] = [
+    { label: "Your Name", key: "name", placeholder: "John Doe" },
+    { label: "Shop / Business Name", key: "shopName", placeholder: "My Shop" },
+    { label: "Shop Address", key: "shopAddress", placeholder: "123 Main Street, City" },
+    { label: "Pincode", key: "shopPincode", placeholder: "600001" },
+    { label: "Contact Number", key: "shopContact", placeholder: "+91 9876543210" },
+    { label: "Shop Email", key: "shopEmail", placeholder: "shop@example.com" },
+    { label: "GST Number", key: "shopGst", placeholder: "29XXXXXXXXXXXZX" },
+  ];
 
   return (
     <div className="w-full">
-      <Header name="User Settings" />
-      <div className="overflow-x-auto mt-5 shadow-md">
-        <table className="min-w-full bg-white rounded-lg">
-          <thead className="bg-gray-800 text-white">
-            <tr>
-              <th className="text-left py-3 px-4 uppercase font-semibold text-sm">
-                Setting
-              </th>
-              <th className="text-left py-3 px-4 uppercase font-semibold text-sm">
-                Value
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {userSettings.map((setting, index) => (
-              <tr className="hover:bg-blue-50" key={setting.label}>
-                <td className="py-2 px-4">{setting.label}</td>
-                <td className="py-2 px-4">
-                  {setting.type === "toggle" ? (
-                    <label className="inline-flex relative items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="sr-only peer"
-                        checked={setting.value as boolean}
-                        onChange={() => handleToggleChange(index)}
-                      />
-                      <div
-                        className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-blue-400 peer-focus:ring-4 
-                        transition peer-checked:after:translate-x-full peer-checked:after:border-white 
-                        after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white 
-                        after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all
-                        peer-checked:bg-blue-600"
-                      ></div>
-                    </label>
-                  ) : (
-                    <input
-                      type="text"
-                      className="px-4 py-2 border rounded-lg text-gray-500 focus:outline-none focus:border-blue-500"
-                      value={setting.value as string}
-                      onChange={(e) => {
-                        const settingsCopy = [...userSettings];
-                        settingsCopy[index].value = e.target.value;
-                        setUserSettings(settingsCopy);
-                      }}
-                    />
-                  )}
-                </td>
-              </tr>
+      <Header name="Settings" />
+
+      <div className="mt-6 max-w-2xl">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-1">Shop Profile</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            These details are used in invoices and across the application.
+          </p>
+
+          <div className="space-y-4">
+            {fields.map(({ label, key, placeholder }) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {label}
+                </label>
+                <input
+                  type="text"
+                  value={form[key]}
+                  onChange={(e) => handleChange(key, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-gray-800"
+                />
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {isSaving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <p className="text-xs text-gray-400">
+              Account email: <span className="font-medium text-gray-500">{profile?.email}</span> (cannot be changed)
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

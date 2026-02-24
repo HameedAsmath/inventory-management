@@ -2,16 +2,20 @@
 
 import { useAppDispatch, useAppSelector } from "@/app/redux";
 import { setIsDarkMode, setIsSidebarCollapsed } from "@/app/state";
-import { Bell, Menu, Moon, Settings, Sun } from "lucide-react";
-import Image from "next/image";
+import { useGetMeQuery, useLogoutMutation } from "@/app/state/api";
+import { Bell, LogOut, Menu, Moon, Settings, Sun } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const Navbar = () => {
   const dispatch = useAppDispatch();
+  const router = useRouter();
   const isSidebarCollapsed = useAppSelector(
-    (state) => state.global.isSidebarCollapsed
+    (state) => state.global.isSidebarCollapsed,
   );
   const isDarkMode = useAppSelector((state) => state.global.isDarkMode);
+  const { data: profile } = useGetMeQuery();
+  const [logout] = useLogoutMutation();
 
   const toggleSidebar = () => {
     dispatch(setIsSidebarCollapsed(!isSidebarCollapsed));
@@ -19,6 +23,15 @@ const Navbar = () => {
 
   const toggleDarkMode = () => {
     dispatch(setIsDarkMode(!isDarkMode));
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout().unwrap();
+    } catch {
+      // even if the API call fails, redirect to login
+    }
+    router.push("/login");
   };
 
   return (
@@ -32,7 +45,7 @@ const Navbar = () => {
           <Menu className="w-4 h-4" />
         </button>
 
-        <div className="relative">
+        {/* <div className="relative">
           <input
             type="search"
             placeholder="Start type to search groups & products"
@@ -42,13 +55,13 @@ const Navbar = () => {
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-non">
             <Bell className="text-gray-500" size={20} />
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* RIGHT SIDE */}
       <div className="flex justify-between items-center gap-5">
         <div className="hidden md:flex justify-between items-center gap-5">
-          <div>
+          {/* <div>
             <button onClick={toggleDarkMode}>
               {isDarkMode ? (
                 <Sun className="cursor-pointer text-gray-500" size={24} />
@@ -62,22 +75,24 @@ const Navbar = () => {
             <span className="absolute -top-2 -right-2 inline-flex items-center justify-center px-[0.4rem] py-1 text-xs font-semibold leading-none text-red-100 bg-red-400 rounded-full">
               3
             </span>
-          </div>
-          <hr className="w-0 h-7 border border-solid border-l border-gray-300 mx-3" />
-          <div className="flex items-center gap-3 cursor-pointer">
-            {/* <Image
-              src="https://s3-inventorymanagement.s3.us-east-2.amazonaws.com/profile.jpg"
-              alt="Profile"
-              width={50}
-              height={50}
-              className="rounded-full h-full object-cover"
-            /> */}
-            <span className="font-semibold">Ed Roh</span>
+          </div> */}
+          <hr className="w-0 h-7 mx-3" />
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-gray-700">
+              {profile?.name || "User"}
+            </span>
           </div>
         </div>
         <Link href="/settings">
           <Settings className="cursor-pointer text-gray-500" size={24} />
         </Link>
+        <button
+          onClick={handleLogout}
+          className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+          title="Logout"
+        >
+          <LogOut size={20} />
+        </button>
       </div>
     </div>
   );

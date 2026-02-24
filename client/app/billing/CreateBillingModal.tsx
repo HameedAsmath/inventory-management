@@ -1,10 +1,12 @@
 "use client";
 
-import React, { FormEvent, useState } from "react";
+import React, { FormEvent, useState, useEffect } from "react";
 import {
   useGetCustomersQuery,
   useGetProductsQuery,
   type Product,
+  type Billing,
+  type PaymentStatus,
 } from "../state/api";
 import {
   Plus,
@@ -15,6 +17,7 @@ import {
   User,
   Package,
   CheckCircle2,
+  Edit2,
 } from "lucide-react";
 import { v4 } from "uuid";
 
@@ -23,17 +26,39 @@ type BillingItemInput = {
   productName: string;
   quantity: number;
   price: number;
+  price1: number;
+  price2: number | null;
+  selectedPriceType: "price1" | "price2";
+  discountInput: string;
   maxStock: number;
 };
+
+function parseDiscount(input: string, gross: number): number {
+  const trimmed = input.trim();
+  if (!trimmed) return 0;
+  if (trimmed.endsWith("%")) {
+    const pct = parseFloat(trimmed.slice(0, -1));
+    if (isNaN(pct) || pct < 0) return 0;
+    const clamped = Math.min(pct, 100);
+    return Math.round((gross * clamped) / 100 * 100) / 100;
+  }
+  const amt = parseFloat(trimmed);
+  if (isNaN(amt) || amt < 0) return 0;
+  return Math.min(amt, gross);
+}
 
 type CreateBillingData = {
   billingId: string;
   customerId: string;
   totalAmount: number;
+  pnfCharges: number;
+  paidAmount: number;
+  paymentStatus: PaymentStatus;
   items: Array<{
     productId: string;
     quantity: number;
     price: number;
+    discount: number;
   }>;
 };
 
@@ -41,12 +66,21 @@ type CreateBillingModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: CreateBillingData) => void;
+  onUpdate?: (
+    billingId: string,
+    data: Omit<CreateBillingData, "billingId">,
+  ) => void;
+  editingBillingId?: string | null;
+  billings?: Billing[];
 };
 
 const CreateBillingModal = ({
   isOpen,
   onClose,
   onCreate,
+  onUpdate,
+  editingBillingId,
+  billings,
 }: CreateBillingModalProps) => {
   const [customerId, setCustomerId] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
@@ -55,15 +89,75 @@ const CreateBillingModal = ({
   const [items, setItems] = useState<BillingItemInput[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [pnfEnabled, setPnfEnabled] = useState(false);
+  const [pnfAmount, setPnfAmount] = useState("");
+  const [billStatus, setBillStatus] = useState<PaymentStatus>("pending");
+  const [paidAmountInput, setPaidAmountInput] = useState("");
   const [error, setError] = useState("");
 
   const { data: customers } = useGetCustomersQuery(customerSearch);
   const { data: products } = useGetProductsQuery(productSearch);
 
-  const totalAmount = items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0
-  );
+  const editingBilling = editingBillingId
+    ? billings?.find((b) => b.billingId === editingBillingId)
+    : null;
+
+  useEffect(() => {
+    if (editingBilling && isOpen) {
+      setCustomerId(editingBilling.customerId);
+      setSelectedCustomerName(editingBilling.customer.name);
+      setCustomerSearch(editingBilling.customer.name);
+      if (editingBilling.pnfCharges > 0) {
+        setPnfEnabled(true);
+        setPnfAmount(String(editingBilling.pnfCharges));
+      } else {
+        setPnfEnabled(false);
+        setPnfAmount("");
+      }
+      setBillStatus(editingBilling.paymentStatus);
+      setPaidAmountInput(
+        editingBilling.paidAmount > 0 ? String(editingBilling.paidAmount) : "",
+      );
+      setItems(
+        editingBilling.BillingItem.map((item) => {
+          const p2 = item.product.price2 ?? null;
+          const isPrice2 = p2 != null && item.price === p2;
+          return {
+            productId: item.productId,
+            productName: item.product.name,
+            quantity: item.quantity,
+            price: item.price,
+            price1: item.product.price1,
+            price2: p2,
+            selectedPriceType: isPrice2
+              ? ("price2" as const)
+              : ("price1" as const),
+            discountInput: item.discount > 0 ? String(item.discount) : "",
+            maxStock: (item.product.stockQuantity || 0) + item.quantity,
+          };
+        }),
+      );
+    } else if (!editingBilling && isOpen) {
+      resetForm();
+    }
+  }, [editingBilling, isOpen]);
+
+  const itemsTotal = items.reduce((sum, item) => {
+    const gross = item.price * item.quantity;
+    const disc = parseDiscount(item.discountInput, gross);
+    return sum + Math.max(0, gross - disc);
+  }, 0);
+
+  const pnfValue = pnfEnabled ? (parseFloat(pnfAmount) || 0) : 0;
+  const totalAmount = itemsTotal + pnfValue;
+
+  const effectivePaidAmount =
+    billStatus === "success"
+      ? totalAmount
+      : billStatus === "pending"
+        ? Math.min(parseFloat(paidAmountInput) || 0, totalAmount)
+        : 0;
+  const balance = Math.max(0, totalAmount - effectivePaidAmount);
 
   const handleSelectCustomer = (id: string) => {
     setCustomerId(id);
@@ -82,7 +176,7 @@ const CreateBillingModal = ({
   const handleAddProduct = (product: Product) => {
     if (items.find((item) => item.productId === product.productId)) {
       setError(
-        `${product.name} is already added. Adjust the quantity instead.`
+        `${product.name} is already added. Adjust the quantity instead.`,
       );
       setShowProductDropdown(false);
       setProductSearch("");
@@ -102,7 +196,11 @@ const CreateBillingModal = ({
         productId: product.productId,
         productName: product.name,
         quantity: 1,
-        price: product.price,
+        price: product.price1,
+        price1: product.price1,
+        price2: product.price2 ?? null,
+        selectedPriceType: "price1",
+        discountInput: "",
         maxStock: product.stockQuantity,
       },
     ]);
@@ -115,6 +213,36 @@ const CreateBillingModal = ({
     setItems(items.filter((item) => item.productId !== productId));
   };
 
+  const handlePriceTypeChange = (
+    productId: string,
+    priceType: "price1" | "price2",
+  ) => {
+    setItems(
+      items.map((item) =>
+        item.productId === productId
+          ? {
+              ...item,
+              selectedPriceType: priceType,
+              price:
+                priceType === "price1"
+                  ? item.price1
+                  : (item.price2 ?? item.price1),
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleDiscountChange = (productId: string, value: string) => {
+    setItems(
+      items.map((item) =>
+        item.productId === productId
+          ? { ...item, discountInput: value }
+          : item,
+      ),
+    );
+  };
+
   const handleQuantityChange = (productId: string, quantity: number) => {
     setItems(
       items.map((item) =>
@@ -123,8 +251,8 @@ const CreateBillingModal = ({
               ...item,
               quantity: Math.max(1, Math.min(quantity, item.maxStock)),
             }
-          : item
-      )
+          : item,
+      ),
     );
   };
 
@@ -141,18 +269,38 @@ const CreateBillingModal = ({
       return;
     }
 
-    const billingData: CreateBillingData = {
-      billingId: `BILL-${v4().slice(0, 8).toUpperCase()}`,
+    if (billStatus === "pending" && !paidAmountInput) {
+      setError("Please enter the amount paid for a pending bill.");
+      return;
+    }
+
+    const billingData = {
       customerId,
       totalAmount,
-      items: items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        price: item.price,
-      })),
+      pnfCharges: pnfValue,
+      paidAmount: effectivePaidAmount,
+      paymentStatus: billStatus,
+      items: items.map((item) => {
+        const gross = item.price * item.quantity;
+        const discount = parseDiscount(item.discountInput, gross);
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          price: item.price,
+          discount,
+        };
+      }),
     };
 
-    onCreate(billingData);
+    if (editingBillingId && onUpdate) {
+      onUpdate(editingBillingId, billingData);
+    } else {
+      const createData: CreateBillingData = {
+        billingId: `BILL-${v4().slice(0, 8).toUpperCase()}`,
+        ...billingData,
+      };
+      onCreate(createData);
+    }
     resetForm();
   };
 
@@ -163,6 +311,10 @@ const CreateBillingModal = ({
     setItems([]);
     setError("");
     setProductSearch("");
+    setPnfEnabled(false);
+    setPnfAmount("");
+    setBillStatus("pending");
+    setPaidAmountInput("");
   };
 
   const handleClose = () => {
@@ -175,22 +327,21 @@ const CreateBillingModal = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* BACKDROP */}
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={handleClose}
-      />
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
 
       {/* MODAL */}
       <div className="flex min-h-full items-start justify-center p-4 pt-10">
-        <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
+        <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
           {/* HEADER */}
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Create New Bill
+                {editingBillingId ? "Edit Bill" : "Create New Bill"}
               </h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Select a customer and add products to generate an invoice
+                {editingBillingId
+                  ? "Update customer and products for this invoice"
+                  : "Select a customer and add products to generate an invoice"}
               </p>
             </div>
             <button
@@ -335,7 +486,7 @@ const CreateBillingModal = ({
                       <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto">
                         {products.map((product) => {
                           const alreadyAdded = items.some(
-                            (i) => i.productId === product.productId
+                            (i) => i.productId === product.productId,
                           );
                           return (
                             <button
@@ -347,8 +498,8 @@ const CreateBillingModal = ({
                                 alreadyAdded
                                   ? "bg-gray-50 opacity-50 cursor-not-allowed"
                                   : product.stockQuantity <= 0
-                                  ? "opacity-50"
-                                  : "hover:bg-gray-50"
+                                    ? "opacity-50"
+                                    : "hover:bg-gray-50"
                               }`}
                             >
                               <div className="flex items-center gap-3">
@@ -365,7 +516,7 @@ const CreateBillingModal = ({
                                     )}
                                   </p>
                                   <p className="text-xs text-gray-400">
-                                    ${product.price.toFixed(2)}
+                                    ₹{product.price1.toFixed(2)}
                                   </p>
                                 </div>
                               </div>
@@ -374,8 +525,8 @@ const CreateBillingModal = ({
                                   product.stockQuantity <= 0
                                     ? "bg-red-50 text-red-600"
                                     : product.stockQuantity <= 5
-                                    ? "bg-amber-50 text-amber-600"
-                                    : "bg-emerald-50 text-emerald-600"
+                                      ? "bg-amber-50 text-amber-600"
+                                      : "bg-emerald-50 text-emerald-600"
                                 }`}
                               >
                                 {product.stockQuantity <= 0
@@ -405,6 +556,9 @@ const CreateBillingModal = ({
                             Price
                           </th>
                           <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
+                            Discount
+                          </th>
+                          <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
                             Subtotal
                           </th>
                           <th className="w-10 px-2 py-2.5"></th>
@@ -415,9 +569,7 @@ const CreateBillingModal = ({
                           <tr
                             key={item.productId}
                             className={
-                              idx !== 0
-                                ? "border-t border-gray-100"
-                                : ""
+                              idx !== 0 ? "border-t border-gray-100" : ""
                             }
                           >
                             <td className="px-4 py-3">
@@ -435,7 +587,7 @@ const CreateBillingModal = ({
                                   onClick={() =>
                                     handleQuantityChange(
                                       item.productId,
-                                      item.quantity - 1
+                                      item.quantity - 1,
                                     )
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
@@ -450,7 +602,7 @@ const CreateBillingModal = ({
                                   onChange={(e) =>
                                     handleQuantityChange(
                                       item.productId,
-                                      parseInt(e.target.value) || 1
+                                      parseInt(e.target.value) || 1,
                                     )
                                   }
                                   className="w-12 py-1 text-center text-sm border-x border-gray-200 focus:outline-none"
@@ -460,7 +612,7 @@ const CreateBillingModal = ({
                                   onClick={() =>
                                     handleQuantityChange(
                                       item.productId,
-                                      item.quantity + 1
+                                      item.quantity + 1,
                                     )
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
@@ -469,11 +621,72 @@ const CreateBillingModal = ({
                                 </button>
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-right text-gray-600">
-                              ${item.price.toFixed(2)}
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col items-end gap-1">
+                                {item.price2 != null ? (
+                                  <select
+                                    value={item.selectedPriceType}
+                                    onChange={(e) =>
+                                      handlePriceTypeChange(
+                                        item.productId,
+                                        e.target.value as "price1" | "price2",
+                                      )
+                                    }
+                                    className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  >
+                                    <option value="price1">price 1</option>
+                                    <option value="price2">price 2</option>
+                                  </select>
+                                ) : (
+                                  <span className="text-xs text-gray-400">
+                                    price 1
+                                  </span>
+                                )}
+                                <span className="text-sm text-gray-700 font-medium">
+                                  ₹{item.price.toFixed(2)}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <input
+                                type="text"
+                                placeholder="0"
+                                value={item.discountInput}
+                                onChange={(e) =>
+                                  handleDiscountChange(
+                                    item.productId,
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-20 text-right text-sm border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300"
+                                title="Enter amount (e.g. 50) or percentage (e.g. 10%)"
+                              />
+                              {(() => {
+                                const gross = item.price * item.quantity;
+                                const disc = parseDiscount(item.discountInput, gross);
+                                return disc > 0 ? (
+                                  <p className="text-xs text-red-500 mt-0.5">
+                                    −₹{disc.toFixed(2)}
+                                  </p>
+                                ) : null;
+                              })()}
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                              ${(item.price * item.quantity).toFixed(2)}
+                              {(() => {
+                                const gross = item.price * item.quantity;
+                                const disc = parseDiscount(item.discountInput, gross);
+                                const sub = Math.max(0, gross - disc);
+                                return (
+                                  <>
+                                    {disc > 0 && (
+                                      <span className="text-xs text-gray-400 line-through mr-1">
+                                        ₹{gross.toFixed(2)}
+                                      </span>
+                                    )}
+                                    ₹{sub.toFixed(2)}
+                                  </>
+                                );
+                              })()}
                             </td>
                             <td className="px-2 py-3 text-center">
                               <button
@@ -504,14 +717,105 @@ const CreateBillingModal = ({
             </div>
 
             {/* FOOTER */}
-            <div className="border-t border-gray-100 px-6 py-4">
+            <div className="border-t border-gray-100 px-6 py-4 space-y-4">
+              {/* P&F CHARGES */}
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={pnfEnabled}
+                    onChange={(e) => {
+                      setPnfEnabled(e.target.checked);
+                      if (!e.target.checked) setPnfAmount("");
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    P&F Charges
+                  </span>
+                </label>
+                {pnfEnabled && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">₹</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={pnfAmount}
+                      onChange={(e) => setPnfAmount(e.target.value)}
+                      className="w-28 text-right text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* STATUS & AMOUNT PAID */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">
+                    Status
+                  </label>
+                  <select
+                    value={billStatus}
+                    onChange={(e) => {
+                      const s = e.target.value as PaymentStatus;
+                      setBillStatus(s);
+                      if (s === "success") setPaidAmountInput("");
+                      if (s === "cancelled") setPaidAmountInput("");
+                    }}
+                    className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="success">Paid</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                {billStatus === "pending" && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Amount Paid<span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-500">₹</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={totalAmount}
+                        placeholder="0.00"
+                        value={paidAmountInput}
+                        onChange={(e) => setPaidAmountInput(e.target.value)}
+                        className="w-28 text-right text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {billStatus !== "cancelled" && totalAmount > 0 && (
+                  <div className="ml-auto text-right">
+                    <p className="text-xs text-gray-500">Balance</p>
+                    <p className={`text-lg font-bold ${balance > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                      ₹{balance.toFixed(2)}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-between">
                 <div>
+                  {pnfEnabled && pnfValue > 0 && (
+                    <p className="text-xs text-gray-400 mb-0.5">
+                      Items: ₹{itemsTotal.toFixed(2)} + P&F: ₹{pnfValue.toFixed(2)}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500 uppercase font-medium tracking-wider">
                     Grand Total
                   </p>
                   <p className="text-2xl font-bold text-gray-900 mt-0.5">
-                    ${totalAmount.toFixed(2)}
+                    ₹{totalAmount.toFixed(2)}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -527,8 +831,17 @@ const CreateBillingModal = ({
                     disabled={!customerId || items.length === 0}
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
                   >
-                    <Plus className="w-4 h-4" />
-                    Create Bill
+                    {editingBillingId ? (
+                      <>
+                        <Edit2 className="w-4 h-4" />
+                        Update Bill
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        Create Bill
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

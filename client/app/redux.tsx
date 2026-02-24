@@ -1,5 +1,10 @@
 import { useRef } from "react";
-import { combineReducers, configureStore } from "@reduxjs/toolkit";
+import {
+  combineReducers,
+  configureStore,
+  isRejectedWithValue,
+  Middleware,
+} from "@reduxjs/toolkit";
 import {
   TypedUseSelectorHook,
   useDispatch,
@@ -9,6 +14,7 @@ import {
 import globalReducer from "@/app/state";
 import { api } from "@/app/state/api";
 import { setupListeners } from "@reduxjs/toolkit/query";
+import { toast } from "sonner";
 
 import {
   persistStore,
@@ -58,6 +64,28 @@ export type RootState = ReturnType<typeof rootReducer>;
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);
 
+const SILENT_ENDPOINTS = ["getMe", "logout"];
+
+const rtkQueryErrorToast: Middleware = () => (next) => (action) => {
+  if (isRejectedWithValue(action)) {
+    const endpointName = (action.meta?.arg as { endpointName?: string })
+      ?.endpointName;
+    if (endpointName && SILENT_ENDPOINTS.includes(endpointName)) {
+      return next(action);
+    }
+
+    const payload = action.payload as { data?: { message?: string }; status?: number };
+    const message =
+      payload?.data?.message ||
+      (payload?.status === 500
+        ? "Something went wrong on the server"
+        : "Something went wrong");
+
+    toast.error(message);
+  }
+  return next(action);
+};
+
 /* REDUX STORE */
 export const makeStore = () => {
   return configureStore({
@@ -67,7 +95,7 @@ export const makeStore = () => {
         serializableCheck: {
           ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
         },
-      }).concat(api.middleware),
+      }).concat(api.middleware, rtkQueryErrorToast),
   });
 };
 
@@ -83,7 +111,7 @@ export default function StoreProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const storeRef = useRef<AppStore>();
+  const storeRef = useRef<AppStore>(undefined);
   if (!storeRef.current) {
     storeRef.current = makeStore();
     setupListeners(storeRef.current.dispatch);

@@ -1,117 +1,494 @@
 "use client";
 
-import { useCreateProductMutation, useGetProductsQuery } from "../state/api";
-import { PlusCircleIcon, SearchIcon } from "lucide-react";
-import { useState } from "react";
+import {
+  useCreateProductMutation,
+  useUpdateProductMutation,
+  useGetProductsQuery,
+  type Product,
+} from "../state/api";
+import {
+  Plus,
+  Search,
+  Package,
+  AlertTriangle,
+  Filter,
+  X,
+  Edit2,
+} from "lucide-react";
+import { useState, useMemo } from "react";
 import Header from "@/app/(components)/Header";
-import Rating from "@/app/(components)/Rating";
 import CreateProductModal from "./CreateProductModal";
-import Image from "next/image";
-
-type ProductFormData = {
-  name: string;
-  price: number;
-  stockQuantity: number;
-  rating: number;
-};
+import { toast } from "sonner";
 
 const Products = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
 
   const {
     data: products,
     isLoading,
     isError,
-  } = useGetProductsQuery(searchTerm);
+  } = useGetProductsQuery(
+    searchTerm || categoryFilter !== "all"
+      ? { search: searchTerm, category: categoryFilter }
+      : undefined,
+  );
 
   const [createProduct] = useCreateProductMutation();
-  const handleCreateProduct = async (productData: ProductFormData) => {
-    await createProduct(productData);
+  const [updateProduct] = useUpdateProductMutation();
+
+  const handleCreateProduct = async (productData: {
+    name: string;
+    price1: number;
+    price2?: number;
+    cp?: number;
+    stockQuantity: number;
+    category?: string;
+  }) => {
+    try {
+      await createProduct(productData).unwrap();
+      toast.success("Product created successfully");
+      setIsModalOpen(false);
+    } catch {
+      // error toast handled globally
+    }
+  };
+
+  const handleUpdateProduct = async (
+    productId: string,
+    productData: {
+      name: string;
+      price1: number;
+      price2?: number;
+      cp?: number;
+      stockQuantity: number;
+      category?: string;
+    },
+  ) => {
+    try {
+      await updateProduct({ productId, data: productData }).unwrap();
+      toast.success("Product updated successfully");
+      setIsModalOpen(false);
+      setEditingProduct(null);
+    } catch {
+      // error toast handled globally
+    }
+  };
+
+  const handleEditClick = (product: Product) => {
+    setEditingProduct(product);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setEditingProduct(null);
+  };
+
+  const toggleExpand = (productId: string) => {
+    setExpandedProduct(expandedProduct === productId ? null : productId);
+  };
+
+  const categories = useMemo(() => {
+    if (!products) return [];
+    const uniqueCategories = new Set<string>();
+    products.forEach((p) => {
+      if (p.category && p.category.trim()) {
+        uniqueCategories.add(p.category.trim());
+      }
+    });
+    return Array.from(uniqueCategories).sort();
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    if (!products) return [];
+    return products.filter((product) => {
+      if (categoryFilter === "all") return true;
+      if (categoryFilter === "low-stock") return product.stockQuantity < 10;
+      if (categoryFilter === "out-of-stock") return product.stockQuantity === 0;
+      return product.category === categoryFilter;
+    });
+  }, [products, categoryFilter]);
+
+  const getStockStatus = (stockQuantity: number) => {
+    if (stockQuantity === 0) {
+      return {
+        label: "Out of Stock",
+        color: "bg-red-50 text-red-700 border-red-200",
+      };
+    }
+    if (stockQuantity < 10) {
+      return {
+        label: "Low Stock",
+        color: "bg-amber-50 text-amber-700 border-amber-200",
+      };
+    }
+    return {
+      label: "In Stock",
+      color: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    };
   };
 
   if (isLoading) {
-    return <div className="py-4">Loading...</div>;
-  }
-
-  if (isError || !products) {
     return (
-      <div className="text-center text-red-500 py-4">
-        Failed to fetch products
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
       </div>
     );
   }
 
+  if (isError || !products) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="rounded-full bg-red-100 p-4 mb-4">
+          <Package className="w-8 h-8 text-red-500" />
+        </div>
+        <p className="text-gray-600 font-medium">Failed to fetch products</p>
+        <p className="text-sm text-gray-400 mt-1">
+          Please check your connection and try again.
+        </p>
+      </div>
+    );
+  }
+
+  const totalProducts = filteredProducts.length;
+  const lowStockCount = filteredProducts.filter(
+    (p) => p.stockQuantity < 10,
+  ).length;
+  const outOfStockCount = filteredProducts.filter(
+    (p) => p.stockQuantity === 0,
+  ).length;
+
   return (
     <div className="mx-auto pb-5 w-full">
-      {/* SEARCH BAR */}
-      <div className="mb-6">
-        <div className="flex items-center border-2 border-gray-200 rounded">
-          <SearchIcon className="w-5 h-5 text-gray-500 m-2" />
-          <input
-            className="w-full py-2 px-4 rounded bg-white"
-            placeholder="Search products..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      {/* PAGE HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+          <Header name="Products" />
+          <p className="text-sm text-gray-500 mt-1">
+            Manage your inventory and product catalog
+          </p>
         </div>
-      </div>
-
-      {/* HEADER BAR */}
-      <div className="flex justify-between items-center mb-6">
-        <Header name="Products" />
         <button
-          className="flex items-center bg-blue-500 hover:bg-blue-700 text-gray-200 font-bold py-2 px-4 rounded"
-          onClick={() => setIsModalOpen(true)}
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-5 rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
+          onClick={() => {
+            setEditingProduct(null);
+            setIsModalOpen(true);
+          }}
         >
-          <PlusCircleIcon className="w-5 h-5 mr-2 !text-gray-200" /> Create
-          Product
+          <Plus className="w-4 h-4" />
+          Add Product
         </button>
       </div>
 
-      {/* BODY PRODUCTS LIST */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg-grid-cols-3 gap-10 justify-between">
-        {isLoading ? (
-          <div>Loading...</div>
-        ) : (
-          products?.map((product) => (
-            <div
-              key={product.productId}
-              className="border shadow rounded-md p-4 max-w-full w-full mx-auto"
+      {/* SUMMARY STATS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+          <div className="shrink-0 rounded-lg bg-blue-50 p-3">
+            <Package className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{totalProducts}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+              Total Products
+            </p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+          <div className="shrink-0 rounded-lg bg-amber-50 p-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{lowStockCount}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+              Low Stock
+            </p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+          <div className="shrink-0 rounded-lg bg-red-50 p-3">
+            <AlertTriangle className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">
+              {outOfStockCount}
+            </p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+              Out of Stock
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* FILTERS */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
-              <div className="flex flex-col items-center">
-                {/* <Image
-                  src={`https://s3-inventorymanagement.s3.us-east-2.amazonaws.com/product${
-                    Math.floor(Math.random() * 3) + 1
-                  }.png`}
-                  alt={product.name}
-                  width={150}
-                  height={150}
-                  className="mb-3 rounded-2xl w-36 h-36"
-                /> */}
-                <h3 className="text-lg text-gray-900 font-semibold">
-                  {product.name}
-                </h3>
-                <p className="text-gray-800">${product.price.toFixed(2)}</p>
-                <div className="text-sm text-gray-600 mt-1">
-                  Stock: {product.stockQuantity}
-                </div>
-                {product.rating && (
-                  <div className="flex items-center mt-2">
-                    <Rating rating={product.rating} />
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <div className="relative">
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white min-w-[200px]"
+          >
+            <option value="all">All Categories</option>
+            <option value="low-stock">Low Stock (&lt;10)</option>
+            <option value="out-of-stock">Out of Stock</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* PRODUCTS LIST */}
+      {filteredProducts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
+          <div className="rounded-full bg-gray-100 p-5 mb-4">
+            <Package className="w-10 h-10 text-gray-400" />
+          </div>
+          <p className="text-gray-700 font-semibold text-lg">
+            No products found
+          </p>
+          <p className="text-sm text-gray-400 mt-1 mb-5">
+            {searchTerm || categoryFilter !== "all"
+              ? "Try adjusting your filters"
+              : "Get started by adding your first product"}
+          </p>
+          {!searchTerm && categoryFilter === "all" && (
+            <button
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition-colors"
+              onClick={() => setIsModalOpen(true)}
+            >
+              <Plus className="w-4 h-4" />
+              Add Product
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {filteredProducts.map((product, index) => {
+            const stockStatus = getStockStatus(product.stockQuantity);
+            return (
+              <div
+                key={product.productId}
+                className={index !== 0 ? "border-t border-gray-100" : ""}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(product.productId)}
+                  className={`w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/80 transition-colors ${
+                    product.stockQuantity === 0
+                      ? "bg-red-50/30"
+                      : product.stockQuantity < 10
+                        ? "bg-amber-50/30"
+                        : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center shadow-sm ${
+                        product.stockQuantity === 0
+                          ? "bg-red-100"
+                          : product.stockQuantity < 10
+                            ? "bg-amber-100"
+                            : "bg-gradient-to-br from-blue-500 to-blue-600"
+                      }`}
+                    >
+                      <Package
+                        className={`w-4 h-4 ${
+                          product.stockQuantity === 0 ||
+                          product.stockQuantity < 10
+                            ? "text-gray-700"
+                            : "text-white"
+                        }`}
+                      />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        {product.name}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {product.category && (
+                          <>
+                            <span className="text-xs text-gray-500">
+                              {product.category}
+                            </span>
+                            <span className="text-gray-300">|</span>
+                          </>
+                        )}
+                        <span
+                          className={`inline-flex items-center text-xs font-medium rounded-full px-2 py-0.5 border ${stockStatus.color}`}
+                        >
+                          {stockStatus.label}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-gray-900">
+                        ₹{product.price1.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {product.stockQuantity} units
+                      </p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors">
+                      {expandedProduct === product.productId ? (
+                        <span className="text-gray-400 text-xs">−</span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">+</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+
+                {expandedProduct === product.productId && (
+                  <div className="border-t border-gray-100 bg-gray-50/50 px-6 py-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                          Product Details
+                        </h4>
+                        <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+                          <div>
+                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                              Product Name
+                            </p>
+                            <p className="text-sm font-semibold text-gray-900 mt-1">
+                              {product.name}
+                            </p>
+                          </div>
+                          {product.category && (
+                            <div>
+                              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                Category
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {product.category}
+                              </p>
+                            </div>
+                          )}
+                          <div
+                            className={`grid gap-3 ${product.price2 != null ? "grid-cols-2" : "grid-cols-1"}`}
+                          >
+                            <div>
+                              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                Price 1
+                              </p>
+                              <p className="text-lg font-bold text-gray-900 mt-1">
+                                ₹{product.price1.toFixed(2)}
+                              </p>
+                            </div>
+                            {product.price2 != null && (
+                              <div>
+                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                  Price 2
+                                </p>
+                                <p className="text-lg font-bold text-gray-900 mt-1">
+                                  ₹{product.price2.toFixed(2)}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          {product.cp != null && (
+                            <div>
+                              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                CP
+                              </p>
+                              <p className="text-lg font-bold text-gray-900 mt-1">
+                                ₹{product.cp.toFixed(2)}
+                              </p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                              Stock Quantity
+                            </p>
+                            <p className="text-lg font-bold text-gray-900 mt-1">
+                              {product.stockQuantity} units
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                          Stock Status
+                        </h4>
+                        <div className="bg-white rounded-lg border border-gray-200 p-4">
+                          <div
+                            className={`p-4 rounded-lg border ${stockStatus.color}`}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              {product.stockQuantity === 0 ? (
+                                <AlertTriangle className="w-5 h-5 text-red-600" />
+                              ) : product.stockQuantity < 10 ? (
+                                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                              ) : (
+                                <Package className="w-5 h-5 text-emerald-600" />
+                              )}
+                              <span className="font-semibold text-gray-900">
+                                {stockStatus.label}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                              {product.stockQuantity === 0
+                                ? "This product is currently out of stock and needs immediate restocking."
+                                : product.stockQuantity < 10
+                                  ? "Stock is running low. Consider restocking soon."
+                                  : "Product is well stocked and ready for sale."}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(product)}
+                            className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                            Edit Product
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* MODAL */}
       <CreateProductModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={handleCloseModal}
         onCreate={handleCreateProduct}
+        onUpdate={handleUpdateProduct}
+        editingProduct={editingProduct}
+        existingCategories={categories}
       />
     </div>
   );

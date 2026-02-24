@@ -1,5 +1,3 @@
-
-
 generator client {
   provider = "prisma-client-js"
   // output   = "../generated/prisma"
@@ -9,48 +7,44 @@ datasource db {
   provider = "postgresql"
 }
 
-model Users {
-  userId String @id @default(uuid())
-  email String @unique
-  name  String
-}
-
 model Products {
-  productId String @id @default(uuid())
-  name String
-  price Float
-  rating Float?
+  productId     String        @id @default(uuid())
+  name          String
+  price1        Float
+  price2        Float?
+  cp            Float?
+  category      String?
   stockQuantity Int
-  Sales Sales[]
-  Purchases Purchases[]
-  BillingItem BillingItem[]
+  Sales         Sales[]
+  Purchases     Purchases[]
+  BillingItem   BillingItem[]
 }
 
 model Sales {
-  saleId String @id @default(uuid())
-  productId String
-  timestamp DateTime @default(now())
-  quantity Int
-  unitPrice Float
+  saleId      String   @id @default(uuid())
+  productId   String
+  timestamp   DateTime @default(now())
+  quantity    Int
+  unitPrice   Float
   totalAmount Float
-  product Products @relation(fields: [productId], references: [productId])
+  product     Products @relation(fields: [productId], references: [productId])
 }
 
 model Purchases {
-  purchaseId String @id @default(uuid())
-  productId String
-  timestamp DateTime @default(now())
-  quantity Int
-  unitCost Float
-  totalCost Float
-  product Products @relation(fields: [productId], references: [productId])
+  purchaseId String   @id @default(uuid())
+  productId  String
+  timestamp  DateTime @default(now())
+  quantity   Int
+  unitCost   Float
+  totalCost  Float
+  product    Products @relation(fields: [productId], references: [productId])
 }
 
 model SalesSummary {
-  salesSummaryId String @id @default(uuid())
-  totalValue Float
+  salesSummaryId   String   @id @default(uuid())
+  totalValue       Float
   changePercentage Float?
-  date DateTime @default(now())
+  date             DateTime @default(now())
 }
 
 model PurchaseSummary {
@@ -61,49 +55,78 @@ model PurchaseSummary {
 }
 
 model ExpenseSummary {
-  expenseSummaryId String @id @default(uuid())
-  totalExpenses Float
-  date DateTime @default(now())
+  expenseSummaryId  String              @id @default(uuid())
+  totalExpenses     Float
+  date              DateTime            @default(now())
   ExpenseByCategory ExpenseByCategory[]
 }
 
 model ExpenseByCategory {
-  expenseByCategoryId String @id @default(uuid())
-  expenseSummaryId String
-  category String
-  amount BigInt
-  date DateTime @default(now())
-  expenseSummary ExpenseSummary @relation(fields: [expenseSummaryId], references: [expenseSummaryId])
+  expenseByCategoryId String         @id @default(uuid())
+  expenseSummaryId    String
+  category            String
+  amount              BigInt
+  date                DateTime       @default(now())
+  expenseSummary      ExpenseSummary @relation(fields: [expenseSummaryId], references: [expenseSummaryId])
 }
 
 model Customer {
-  customerId String @id @default(uuid())
-  name String
-  email String? @unique
-  phone String?
-  address String?
-  Billing Billing[]
+  customerId String    @id @default(uuid())
+  name       String
+  email      String?   @unique
+  phone      String?
+  address    String?
+  Billing    Billing[]
+}
+
+enum PaymentStatus {
+  pending
+  success
+  cancelled
 }
 
 model Billing {
-  billingId String @id @default(uuid())
-  customerId String
-  totalAmount Float
-  timestamp DateTime @default(now())
-  customer Customer @relation(fields: [customerId], references: [customerId])
-  BillingItem BillingItem[]
+  billingId     String        @id @default(uuid())
+  customerId    String
+  totalAmount   Float
+  pnfCharges    Float         @default(0)
+  paidAmount    Float         @default(0)
+  paymentStatus PaymentStatus @default(pending)
+  timestamp     DateTime      @default(now())
+  customer      Customer      @relation(fields: [customerId], references: [customerId])
+  BillingItem   BillingItem[]
+}
+
+model Expense {
+  expenseId   String        @id @default(uuid())
+  title       String
+  description String?
+  amount      Float
+  status      PaymentStatus @default(pending)
+  timestamp   DateTime      @default(now())
 }
 
 model BillingItem {
-  billingItemId String @id @default(uuid())
-  billingId String
-  productId String
-  quantity Int
-  price Float
-  subtotal Float
-  billing Billing @relation(fields: [billingId], references: [billingId])
-  product Products @relation(fields: [productId], references: [productId])
+  billingItemId String   @id @default(uuid())
+  billingId     String
+  productId     String
+  quantity      Int
+  price         Float
+  discount      Float    @default(0)
+  subtotal      Float
+  billing       Billing  @relation(fields: [billingId], references: [billingId])
+  product       Products @relation(fields: [productId], references: [productId])
 }
-
-
-
+model User {
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  password    String
+  shopName    String   @default("My Shop")
+  shopAddress String   @default("")
+  shopPincode String   @default("")
+  shopContact String   @default("")
+  shopEmail   String   @default("")
+  shopGst     String   @default("")
+  createdAt   DateTime @default(now())
+}

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { ChangeEvent, FormEvent, useState } from "react";
-import { X, User, Mail, MapPin, Hash } from "lucide-react";
+import React, { ChangeEvent, FormEvent, useState, useRef } from "react";
+import { X, User, Mail, MapPin, Edit2, Plus } from "lucide-react";
+import type { Customer } from "../state/api";
 
 type CustomerFormData = {
   customerId: string;
@@ -14,12 +15,16 @@ type CreateCustomerModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (formData: CustomerFormData) => void;
+  onUpdate?: (customerId: string, data: { name: string; email: string; address: string }) => void;
+  editingCustomer?: Customer | null;
 };
 
 const CreateCustomerModal = ({
   isOpen,
   onClose,
   onCreate,
+  onUpdate,
+  editingCustomer,
 }: CreateCustomerModalProps) => {
   const [formData, setFormData] = useState<CustomerFormData>({
     customerId: "",
@@ -28,8 +33,26 @@ const CreateCustomerModal = ({
     address: "",
   });
 
+  const isEditing = !!editingCustomer;
+  const prevEditingRef = useRef<string | null>(null);
+
+  const editingKey = isOpen && editingCustomer ? editingCustomer.customerId : null;
+  if (editingKey !== prevEditingRef.current) {
+    prevEditingRef.current = editingKey;
+    if (editingCustomer && isOpen) {
+      setFormData({
+        customerId: editingCustomer.customerId,
+        name: editingCustomer.name,
+        email: editingCustomer.email || "",
+        address: editingCustomer.address || "",
+      });
+    } else {
+      setFormData({ customerId: "", name: "", email: "", address: "" });
+    }
+  }
+
   const handleChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = e.target;
     setFormData({
@@ -40,7 +63,15 @@ const CreateCustomerModal = ({
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    onCreate(formData);
+    if (isEditing && onUpdate) {
+      onUpdate(editingCustomer.customerId, {
+        name: formData.name,
+        email: formData.email,
+        address: formData.address,
+      });
+    } else {
+      onCreate(formData);
+    }
     setFormData({ customerId: "", name: "", email: "", address: "" });
     onClose();
   };
@@ -49,23 +80,19 @@ const CreateCustomerModal = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* BACKDROP */}
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
 
-      {/* MODAL */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5">
-          {/* HEADER */}
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Add New Customer
+                {isEditing ? "Edit Customer" : "Add New Customer"}
               </h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Fill in the customer details below
+                {isEditing
+                  ? "Update the customer details"
+                  : "Fill in the customer details below"}
               </p>
             </div>
             <button
@@ -76,27 +103,7 @@ const CreateCustomerModal = ({
             </button>
           </div>
 
-          {/* FORM */}
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            {/* CUSTOMER ID */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Customer ID <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  name="customerId"
-                  placeholder="e.g. CUST001"
-                  onChange={handleChange}
-                  value={formData.customerId}
-                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  required
-                />
-              </div>
-            </div>
-
             {/* NAME */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -163,9 +170,19 @@ const CreateCustomerModal = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200"
               >
-                Create Customer
+                {isEditing ? (
+                  <>
+                    <Edit2 className="w-4 h-4" />
+                    Update Customer
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Create Customer
+                  </>
+                )}
               </button>
             </div>
           </form>

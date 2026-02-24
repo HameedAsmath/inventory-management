@@ -7,7 +7,6 @@ import morgan from "morgan";
 /* ROUTE IMPORTS */
 import dashboardRoutes from "./routes/dashboardRoutes";
 import productRoutes from "./routes/productRoutes";
-import userRoutes from "./routes/userRoutes";
 import expenseRoutes from "./routes/expenseRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import billingRoutes from "./routes/billingRoutes";
@@ -27,7 +26,6 @@ app.listen(Number(port), "0.0.0.0", () => {
 });
 app.use("/dashboard", dashboardRoutes);
 app.use("/products", productRoutes);
-app.use("/users", userRoutes);
 app.use("/expenses", expenseRoutes);
 app.use("/customers", customerRoutes);
 app.use("/billing", billingRoutes);

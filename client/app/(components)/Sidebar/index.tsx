@@ -2,8 +2,8 @@
 
 import { useAppDispatch, useAppSelector } from "@/app/redux";
 import { setIsSidebarCollapsed } from "@/app/state";
+import { useGetMeQuery } from "@/app/state/api";
 import {
-  Archive,
   CircleDollarSign,
   Clipboard,
   FileText,
@@ -11,10 +11,8 @@ import {
   LucideIcon,
   Menu,
   SlidersHorizontal,
-  User,
   Users,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -45,7 +43,7 @@ const SidebarLink = ({
         hover:text-blue-500 hover:bg-blue-100 gap-3 transition-colors ${
           isActive ? "bg-blue-200 text-white" : ""
         }
-      }`}
+      `}
       >
         <Icon className="w-6 h-6 !text-gray-700" />
 
@@ -64,8 +62,11 @@ const SidebarLink = ({
 const Sidebar = () => {
   const dispatch = useAppDispatch();
   const isSidebarCollapsed = useAppSelector(
-    (state) => state.global.isSidebarCollapsed
+    (state) => state.global.isSidebarCollapsed,
   );
+  const { data: profile } = useGetMeQuery();
+
+  const shopName = profile?.shopName || "My Shop";
 
   const toggleSidebar = () => {
     dispatch(setIsSidebarCollapsed(!isSidebarCollapsed));
@@ -83,19 +84,12 @@ const Sidebar = () => {
           isSidebarCollapsed ? "px-5" : "px-8"
         }`}
       >
-        {/* <Image
-          src="https://s3-inventorymanagement.s3.us-east-2.amazonaws.com/logo.png"
-          alt="edstock-logo"
-          width={27}
-          height={27}
-          className="rounded w-8"
-        /> */}
         <h1
           className={`${
             isSidebarCollapsed ? "hidden" : "block"
-          } font-extrabold text-2xl`}
+          } font-extrabold text-2xl truncate`}
         >
-          EDSTOCK
+          {shopName}
         </h1>
 
         <button
@@ -112,12 +106,6 @@ const Sidebar = () => {
           href="/dashboard"
           icon={Layout}
           label="Dashboard"
-          isCollapsed={isSidebarCollapsed}
-        />
-        <SidebarLink
-          href="/inventory"
-          icon={Archive}
-          label="Inventory"
           isCollapsed={isSidebarCollapsed}
         />
         <SidebarLink
@@ -139,12 +127,6 @@ const Sidebar = () => {
           isCollapsed={isSidebarCollapsed}
         />
         <SidebarLink
-          href="/users"
-          icon={User}
-          label="Users"
-          isCollapsed={isSidebarCollapsed}
-        />
-        <SidebarLink
           href="/settings"
           icon={SlidersHorizontal}
           label="Settings"
@@ -160,7 +142,9 @@ const Sidebar = () => {
 
       {/* FOOTER */}
       <div className={`${isSidebarCollapsed ? "hidden" : "block"} mb-10`}>
-        <p className="text-center text-xs text-gray-500">&copy; 2024 Edstock</p>
+        <p className="text-center text-xs text-gray-500">
+          &copy; {new Date().getFullYear()} {shopName}
+        </p>
       </div>
     </div>
   );
