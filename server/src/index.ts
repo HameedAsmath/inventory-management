@@ -5,13 +5,13 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 /* ROUTE IMPORTS */
-import dashboardRoutes from "./routes/dashboardRoutes";
-import productRoutes from "./routes/productRoutes";
-import expenseRoutes from "./routes/expenseRoutes";
-import customerRoutes from "./routes/customerRoutes";
-import billingRoutes from "./routes/billingRoutes";
-import authRoutes from "./routes/authRoutes";
-import { protect } from "./middleware/auth.middleware";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
+import productRoutes from "./routes/productRoutes.js";
+import expenseRoutes from "./routes/expenseRoutes.js";
+import customerRoutes from "./routes/customerRoutes.js";
+import billingRoutes from "./routes/billingRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import { protect } from "./middleware/auth.middleware.js";
 import cookieParser from "cookie-parser";
 
 /* CONFIGURATIONS */
@@ -28,7 +28,7 @@ app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "http://localhost:3000",
     credentials: true,
-  })
+  }),
 );
 
 const port = process.env.PORT || 3001;

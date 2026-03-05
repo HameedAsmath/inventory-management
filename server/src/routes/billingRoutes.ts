@@ -7,7 +7,7 @@ import {
   emailBillingInvoice,
   updateBillingPaymentStatus,
   updateBilling,
-} from "../controllers/billingController";
+} from "../controllers/billingController.js";
 
 const router = Router();
 

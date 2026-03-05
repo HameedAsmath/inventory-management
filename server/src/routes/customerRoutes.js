@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { getCustomers, getCustomerById, createCustomer, updateCustomer, deleteCustomer, } from "../controllers/customerController";
+import { getCustomers, getCustomerById, createCustomer, updateCustomer, deleteCustomer, getCustomerStatementPdf, emailCustomerStatement, } from "../controllers/customerController";
 const router = Router();
 router.get("/", getCustomers);
+router.get("/:customerId/statement/pdf", getCustomerStatementPdf);
+router.post("/:customerId/statement/email", emailCustomerStatement);
 router.get("/:customerId", getCustomerById);
 router.post("/", createCustomer);
 router.put("/:customerId", updateCustomer);

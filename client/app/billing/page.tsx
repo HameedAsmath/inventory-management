@@ -34,7 +34,9 @@ const Billing = () => {
   const [editingBillingId, setEditingBillingId] = useState<string | null>(null);
   const [expandedBill, setExpandedBill] = useState<string | null>(null);
   const [emailingBillId, setEmailingBillId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">(
+    "all",
+  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -58,7 +60,7 @@ const Billing = () => {
 
   const handleUpdateBilling = async (
     billingId: string,
-    billingData: Omit<CreateBillingRequest, "billingId">
+    billingData: Omit<CreateBillingRequest, "billingId">,
   ) => {
     try {
       await updateBilling({
@@ -79,8 +81,7 @@ const Billing = () => {
 
   const handleSendEmail = async (billingId: string, customerEmail?: string) => {
     const email =
-      customerEmail ||
-      window.prompt("Enter email address to send invoice to:");
+      customerEmail || window.prompt("Enter email address to send invoice to:");
     if (!email) return;
 
     setEmailingBillId(billingId);
@@ -110,7 +111,7 @@ const Billing = () => {
 
   const handleUpdatePaymentStatus = async (
     billingId: string,
-    status: PaymentStatus
+    status: PaymentStatus,
   ) => {
     try {
       await updatePaymentStatus({ billingId, paymentStatus: status }).unwrap();
@@ -143,6 +144,25 @@ const Billing = () => {
     }
   };
 
+  const hasActiveFilters =
+    statusFilter !== "all" || dateFrom !== "" || dateTo !== "";
+
+  const filteredBillings = useMemo(() => {
+    if (!billings) return [];
+
+    return billings.filter((b) => {
+      if (statusFilter !== "all" && b.paymentStatus !== statusFilter)
+        return false;
+      if (dateFrom && new Date(b.timestamp) < new Date(dateFrom)) return false;
+      if (dateTo) {
+        const toEnd = new Date(dateTo);
+        toEnd.setHours(23, 59, 59, 999);
+        if (new Date(b.timestamp) > toEnd) return false;
+      }
+      return true;
+    });
+  }, [billings, statusFilter, dateFrom, dateTo]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -165,27 +185,18 @@ const Billing = () => {
     );
   }
 
-  const hasActiveFilters = statusFilter !== "all" || dateFrom !== "" || dateTo !== "";
-
-  const filteredBillings = useMemo(() => {
-    return billings.filter((b) => {
-      if (statusFilter !== "all" && b.paymentStatus !== statusFilter) return false;
-      if (dateFrom && new Date(b.timestamp) < new Date(dateFrom)) return false;
-      if (dateTo) {
-        const toEnd = new Date(dateTo);
-        toEnd.setHours(23, 59, 59, 999);
-        if (new Date(b.timestamp) > toEnd) return false;
-      }
-      return true;
-    });
-  }, [billings, statusFilter, dateFrom, dateTo]);
-
-  const totalRevenue = filteredBillings.reduce((sum, b) => sum + b.totalAmount, 0);
-  const totalCollected = filteredBillings.reduce((sum, b) => sum + b.paidAmount, 0);
+  const totalRevenue = filteredBillings.reduce(
+    (sum, b) => sum + b.totalAmount,
+    0,
+  );
+  const totalCollected = filteredBillings.reduce(
+    (sum, b) => sum + b.paidAmount,
+    0,
+  );
   const totalOutstanding = totalRevenue - totalCollected;
   const totalItems = filteredBillings.reduce(
     (sum, b) => sum + b.BillingItem.length,
-    0
+    0,
   );
 
   return (
@@ -218,7 +229,9 @@ const Billing = () => {
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as PaymentStatus | "all")}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as PaymentStatus | "all")
+            }
             className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
@@ -371,7 +384,7 @@ const Billing = () => {
                     </h3>
                     <span
                       className={`shrink-0 inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${getStatusColor(
-                        billing.paymentStatus
+                        billing.paymentStatus,
                       )}`}
                     >
                       {getStatusLabel(billing.paymentStatus)}
@@ -412,7 +425,10 @@ const Billing = () => {
                 </div>
 
                 {/* ACTIONS */}
-                <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="flex items-center gap-0.5"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -435,10 +451,7 @@ const Billing = () => {
                   <button
                     type="button"
                     onClick={() =>
-                      handleSendEmail(
-                        billing.billingId,
-                        billing.customer.email
-                      )
+                      handleSendEmail(billing.billingId, billing.customer.email)
                     }
                     className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
                     title="Email"
@@ -521,9 +534,7 @@ const Billing = () => {
                               <tr
                                 key={item.billingItemId}
                                 className={
-                                  idx !== 0
-                                    ? "border-t border-gray-100"
-                                    : ""
+                                  idx !== 0 ? "border-t border-gray-100" : ""
                                 }
                               >
                                 <td className="py-2.5 px-4 text-gray-800 font-medium">
@@ -539,7 +550,9 @@ const Billing = () => {
                                 </td>
                                 <td className="py-2.5 px-4 text-right text-gray-600">
                                   {item.discount > 0 ? (
-                                    <span className="text-red-500">−₹{item.discount.toFixed(2)}</span>
+                                    <span className="text-red-500">
+                                      −₹{item.discount.toFixed(2)}
+                                    </span>
                                   ) : (
                                     <span className="text-gray-300">—</span>
                                   )}
@@ -561,7 +574,10 @@ const Billing = () => {
                                     Subtotal
                                   </td>
                                   <td className="py-2 px-4 text-right text-sm font-medium text-gray-900">
-                                    ₹{(billing.totalAmount - billing.pnfCharges).toFixed(2)}
+                                    ₹
+                                    {(
+                                      billing.totalAmount - billing.pnfCharges
+                                    ).toFixed(2)}
                                   </td>
                                 </tr>
                                 <tr className="bg-gray-50">
@@ -601,7 +617,8 @@ const Billing = () => {
                                     ₹{billing.paidAmount.toFixed(2)}
                                   </td>
                                 </tr>
-                                {(billing.totalAmount - billing.paidAmount) > 0 && (
+                                {billing.totalAmount - billing.paidAmount >
+                                  0 && (
                                   <tr className="bg-amber-50/60">
                                     <td
                                       colSpan={4}
@@ -610,7 +627,10 @@ const Billing = () => {
                                       Balance Due
                                     </td>
                                     <td className="py-2.5 px-4 text-right text-base font-bold text-amber-700">
-                                      ₹{(billing.totalAmount - billing.paidAmount).toFixed(2)}
+                                      ₹
+                                      {(
+                                        billing.totalAmount - billing.paidAmount
+                                      ).toFixed(2)}
                                     </td>
                                   </tr>
                                 )}
@@ -633,11 +653,11 @@ const Billing = () => {
                         onChange={(e) =>
                           handleUpdatePaymentStatus(
                             billing.billingId,
-                            e.target.value as PaymentStatus
+                            e.target.value as PaymentStatus,
                           )
                         }
                         className={`text-sm font-medium rounded-lg px-3 py-1.5 border ${getStatusColor(
-                          billing.paymentStatus
+                          billing.paymentStatus,
                         )} cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500`}
                       >
                         <option value="pending">Pending</option>
@@ -668,8 +688,13 @@ const Billing = () => {
                           <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
                             Balance
                           </p>
-                          <p className={`text-lg font-bold ${(billing.totalAmount - billing.paidAmount) > 0 ? "text-amber-600" : "text-emerald-600"}`}>
-                            ₹{(billing.totalAmount - billing.paidAmount).toFixed(2)}
+                          <p
+                            className={`text-lg font-bold ${billing.totalAmount - billing.paidAmount > 0 ? "text-amber-600" : "text-emerald-600"}`}
+                          >
+                            ₹
+                            {(billing.totalAmount - billing.paidAmount).toFixed(
+                              2,
+                            )}
                           </p>
                         </div>
                       </div>
@@ -691,7 +716,7 @@ const Billing = () => {
                       onClick={() =>
                         handleSendEmail(
                           billing.billingId,
-                          billing.customer.email
+                          billing.customer.email,
                         )
                       }
                       disabled={emailingBillId === billing.billingId}

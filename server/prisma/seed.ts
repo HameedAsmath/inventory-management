@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { prisma } from "../src/lib/prisma.js";
+import { prisma } from "../src/lib/prisma";
 import "dotenv/config";
 
 const __filename = fileURLToPath(import.meta.url);

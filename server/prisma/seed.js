@@ -11,29 +11,30 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { prisma } from "../src/lib/prisma.js";
+import { prisma } from "../src/lib/prisma";
 import "dotenv/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // Map file names to Prisma model names
 const modelNameMap = {
-    "products": "products",
-    "users": "users",
-    "sales": "sales",
-    "purchases": "purchases",
-    "salesSummary": "salesSummary",
-    "purchaseSummary": "purchaseSummary",
-    "expenseSummary": "expenseSummary",
-    "expenseByCategory": "expenseByCategory",
-    "customers": "customer",
-    "billings": "billing",
-    "billingItems": "billingItem",
+    products: "products",
+    users: "users",
+    sales: "sales",
+    purchases: "purchases",
+    salesSummary: "salesSummary",
+    purchaseSummary: "purchaseSummary",
+    expenseSummary: "expenseSummary",
+    expenseByCategory: "expenseByCategory",
+    customers: "customer",
+    billings: "billing",
+    billingItems: "billingItem",
 };
 function deleteAllData(orderedFileNames) {
     return __awaiter(this, void 0, void 0, function* () {
         const modelNames = orderedFileNames.map((fileName) => {
             const baseName = path.basename(fileName, path.extname(fileName));
-            return modelNameMap[baseName] || baseName.charAt(0).toUpperCase() + baseName.slice(1);
+            return (modelNameMap[baseName] ||
+                baseName.charAt(0).toUpperCase() + baseName.slice(1));
         });
         // Delete in reverse to satisfy FK constraints (children before parents)
         for (const modelName of [...modelNames].reverse()) {
@@ -70,7 +71,8 @@ function main() {
             const filePath = path.join(dataDirectory, fileName);
             const jsonData = JSON.parse(fs.readFileSync(filePath, "utf-8"));
             const baseName = path.basename(fileName, path.extname(fileName));
-            const modelName = modelNameMap[baseName] || baseName.charAt(0).toUpperCase() + baseName.slice(1);
+            const modelName = modelNameMap[baseName] ||
+                baseName.charAt(0).toUpperCase() + baseName.slice(1);
             const model = prisma[modelName];
             if (!model) {
                 console.error(`No Prisma model matches the file name: ${fileName} (mapped to ${modelName})`);

@@ -1,8 +1,18 @@
 {
   "compilerOptions": {
-    "module": "esnext",
-    "moduleResolution": "bundler",
     "target": "es2016",
-    "strict": true
-  }
+    "module": "esnext",
+    "moduleResolution": "node",
+    "strict": true,
+
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+
+  "include": ["src/**/*"],
+
+  "exclude": ["node_modules", "prisma", "prisma.config.ts", "seed.ts"]
 }

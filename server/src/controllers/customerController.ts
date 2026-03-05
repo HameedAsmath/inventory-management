@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import { prisma } from "../lib/prisma";
-import { generateStatementPdf } from "../lib/generateStatementPdf";
-import { sendStatementEmail } from "../lib/sendEmail";
+import { prisma } from "../lib/prisma.js";
+import { generateStatementPdf } from "../lib/generateStatementPdf.js";
+import { sendStatementEmail } from "../lib/sendEmail.js";
 
 export const getCustomers = async (req: Request, res: Response) => {
   try {
@@ -30,7 +30,12 @@ export const getCustomers = async (req: Request, res: Response) => {
       const totalBilled = c.Billing.reduce((s, b) => s + b.totalAmount, 0);
       const totalPaid = c.Billing.reduce((s, b) => s + b.paidAmount, 0);
       const { Billing: _, ...customer } = c;
-      return { ...customer, totalBilled, totalPaid, balance: totalBilled - totalPaid };
+      return {
+        ...customer,
+        totalBilled,
+        totalPaid,
+        balance: totalBilled - totalPaid,
+      };
     });
 
     res.json(result);

@@ -7,7 +7,7 @@ import {
   deleteCustomer,
   getCustomerStatementPdf,
   emailCustomerStatement,
-} from "../controllers/customerController";
+} from "../controllers/customerController.js";
 
 const router = Router();
 

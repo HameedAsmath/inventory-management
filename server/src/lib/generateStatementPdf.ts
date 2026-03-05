@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { ShopDetails } from "./generateInvoicePdf";
+import { ShopDetails } from "./generateInvoicePdf.js";
 
 interface StatementBill {
   billingId: string;
@@ -239,10 +239,24 @@ export function generateStatementPdf(
       doc.fontSize(8.5);
 
       doc.font("Helvetica").fillColor(C.med);
-      tw(doc, `Rs. ${bill.totalAmount.toFixed(2)}`, cols.total, y + 5, numW, "right");
+      tw(
+        doc,
+        `Rs. ${bill.totalAmount.toFixed(2)}`,
+        cols.total,
+        y + 5,
+        numW,
+        "right",
+      );
 
       doc.fillColor("#059669");
-      tw(doc, `Rs. ${bill.paidAmount.toFixed(2)}`, cols.paid, y + 5, numW, "right");
+      tw(
+        doc,
+        `Rs. ${bill.paidAmount.toFixed(2)}`,
+        cols.paid,
+        y + 5,
+        numW,
+        "right",
+      );
 
       const due = bill.totalAmount - bill.paidAmount;
       doc.fillColor(due > 0 ? "#d97706" : C.med);
@@ -260,13 +274,27 @@ export function generateStatementPdf(
     doc.font("Helvetica").fontSize(9).fillColor(C.med);
     tw(doc, "Total Billed", tX, y, tW * 0.5, "right");
     doc.font("Helvetica-Bold").fillColor(C.dark);
-    tw(doc, `Rs. ${data.totalAmount.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
+    tw(
+      doc,
+      `Rs. ${data.totalAmount.toFixed(2)}`,
+      tX + tW * 0.55,
+      y,
+      tW * 0.45,
+      "right",
+    );
     y += 16;
 
     doc.font("Helvetica").fontSize(9).fillColor("#059669");
     tw(doc, "Total Paid", tX, y, tW * 0.5, "right");
     doc.font("Helvetica-Bold");
-    tw(doc, `Rs. ${data.totalPaid.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
+    tw(
+      doc,
+      `Rs. ${data.totalPaid.toFixed(2)}`,
+      tX + tW * 0.55,
+      y,
+      tW * 0.45,
+      "right",
+    );
     y += 16;
 
     // Outstanding bar

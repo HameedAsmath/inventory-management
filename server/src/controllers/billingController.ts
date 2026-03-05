@@ -1,14 +1,22 @@
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { prisma } from "../lib/prisma";
-import { generateInvoicePdf, ShopDetails } from "../lib/generateInvoicePdf";
-import { sendInvoiceEmail } from "../lib/sendEmail";
+import { prisma } from "../lib/prisma.js";
+import { generateInvoicePdf, ShopDetails } from "../lib/generateInvoicePdf.js";
+import { sendInvoiceEmail } from "../lib/sendEmail.js";
 
-async function getUserShopDetails(userId?: string): Promise<ShopDetails | undefined> {
+async function getUserShopDetails(
+  userId?: string,
+): Promise<ShopDetails | undefined> {
   if (!userId) return undefined;
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { shopName: true, shopAddress: true, shopPincode: true, shopContact: true, shopGst: true },
+    select: {
+      shopName: true,
+      shopAddress: true,
+      shopPincode: true,
+      shopContact: true,
+      shopGst: true,
+    },
   });
   if (!user) return undefined;
   return {
@@ -22,7 +30,15 @@ async function getUserShopDetails(userId?: string): Promise<ShopDetails | undefi
 
 export const createBilling = async (req: Request, res: Response) => {
   try {
-    const { billingId, customerId, totalAmount, pnfCharges, paidAmount, paymentStatus, items } = req.body;
+    const {
+      billingId,
+      customerId,
+      totalAmount,
+      pnfCharges,
+      paidAmount,
+      paymentStatus,
+      items,
+    } = req.body;
 
     if (!customerId || !totalAmount || !items || !Array.isArray(items)) {
       return res.status(400).json({
@@ -54,7 +70,9 @@ export const createBilling = async (req: Request, res: Response) => {
     });
 
     if (products.length !== productIds.length) {
-      return res.status(400).json({ message: "One or more products not found" });
+      return res
+        .status(400)
+        .json({ message: "One or more products not found" });
     }
 
     // Check stock availability
@@ -118,7 +136,7 @@ export const createBilling = async (req: Request, res: Response) => {
               product: true,
             },
           });
-        })
+        }),
       );
 
       // Return billing with items and customer
@@ -216,7 +234,7 @@ export const getBillingPdf = async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="${billing.billingId}.pdf"`
+      `inline; filename="${billing.billingId}.pdf"`,
     );
     res.send(pdfBuffer);
   } catch (error) {
@@ -275,13 +293,16 @@ export const emailBillingInvoice = async (req: Request, res: Response) => {
 
 export const updateBillingPaymentStatus = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     const { billingId } = req.params;
     const { paymentStatus } = req.body;
 
-    if (!paymentStatus || !["pending", "success", "cancelled"].includes(paymentStatus)) {
+    if (
+      !paymentStatus ||
+      !["pending", "success", "cancelled"].includes(paymentStatus)
+    ) {
       return res.status(400).json({
         message: "paymentStatus must be one of: pending, success, cancelled",
       });
@@ -328,7 +349,14 @@ export const updateBillingPaymentStatus = async (
 export const updateBilling = async (req: Request, res: Response) => {
   try {
     const { billingId } = req.params;
-    const { customerId, totalAmount, pnfCharges, paidAmount, paymentStatus, items } = req.body;
+    const {
+      customerId,
+      totalAmount,
+      pnfCharges,
+      paidAmount,
+      paymentStatus,
+      items,
+    } = req.body;
 
     if (!customerId || !totalAmount || !items || !Array.isArray(items)) {
       return res.status(400).json({
@@ -372,7 +400,9 @@ export const updateBilling = async (req: Request, res: Response) => {
     });
 
     if (products.length !== productIds.length) {
-      return res.status(400).json({ message: "One or more products not found" });
+      return res
+        .status(400)
+        .json({ message: "One or more products not found" });
     }
 
     // Update billing with items and manage stock in a transaction
@@ -402,7 +432,7 @@ export const updateBilling = async (req: Request, res: Response) => {
         }
         if (product.stockQuantity < item.quantity) {
           throw new Error(
-            `Insufficient stock for product ${product.name}. Available: ${product.stockQuantity}, Requested: ${item.quantity}`
+            `Insufficient stock for product ${product.name}. Available: ${product.stockQuantity}, Requested: ${item.quantity}`,
           );
         }
       }
@@ -439,7 +469,7 @@ export const updateBilling = async (req: Request, res: Response) => {
               product: true,
             },
           });
-        })
+        }),
       );
 
       // Update billing

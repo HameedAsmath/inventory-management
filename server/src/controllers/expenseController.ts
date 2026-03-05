@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { prisma } from "../lib/prisma";
+import { prisma } from "../lib/prisma.js";
 import { randomUUID } from "crypto";
 
 export const createExpense = async (req: Request, res: Response) => {
@@ -40,7 +40,10 @@ export const getExpenses = async (req: Request, res: Response) => {
     const { status } = req.query;
 
     const where: any = {};
-    if (status && ["pending", "success", "cancelled"].includes(status as string)) {
+    if (
+      status &&
+      ["pending", "success", "cancelled"].includes(status as string)
+    ) {
       where.status = status;
     }
 
@@ -54,9 +57,9 @@ export const getExpenses = async (req: Request, res: Response) => {
     res.json(expenses);
   } catch (error: any) {
     console.error("Error retrieving expenses:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Error retrieving expenses",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
