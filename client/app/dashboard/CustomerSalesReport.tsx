@@ -22,9 +22,7 @@ const CustomerSalesReport = () => {
 
     const customerMap = new Map<string, CustomerSalesData>();
 
-    billings
-      .filter((b) => b.paymentStatus === "success")
-      .forEach((billing) => {
+    billings.forEach((billing) => {
         const existing = customerMap.get(billing.customerId);
         if (existing) {
           existing.totalRevenue += billing.totalAmount;
@@ -55,9 +53,7 @@ const CustomerSalesReport = () => {
   const totalCustomers = useMemo(() => {
     if (!billings) return 0;
     const uniqueCustomers = new Set(
-      billings
-        .filter((b) => b.paymentStatus === "success")
-        .map((b) => b.customerId)
+      billings.map((b) => b.customerId)
     );
     return uniqueCustomers.size;
   }, [billings]);
@@ -141,7 +137,7 @@ const CustomerSalesReport = () => {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-start gap-3 flex-1">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <div className="shrink-0 w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
                         <span className="text-sm font-bold text-emerald-700">
                           {customer.customerName
                             .split(" ")

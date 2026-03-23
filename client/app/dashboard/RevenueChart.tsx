@@ -31,10 +31,7 @@ const RevenueChart = () => {
         acc[date] = { revenue: 0, dateObj };
       }
       
-      // Only count successful payments
-      if (billing.paymentStatus === "success") {
-        acc[date].revenue += billing.totalAmount;
-      }
+      acc[date].revenue += billing.totalAmount;
       
       return acc;
     }, {});
@@ -52,9 +49,7 @@ const RevenueChart = () => {
 
   const totalRevenue = useMemo(() => {
     if (!billings) return 0;
-    return billings
-      .filter((b) => b.paymentStatus === "success")
-      .reduce((sum, b) => sum + b.totalAmount, 0);
+    return billings.reduce((sum, b) => sum + b.totalAmount, 0);
   }, [billings]);
 
   const averageDailyRevenue = useMemo(() => {

@@ -20,6 +20,7 @@ import ExpensesOverview from "./ExpensesOverview";
 import StockLevels from "./StockLevels";
 import ProductSalesReport from "./ProductSalesReport";
 import CustomerSalesReport from "./CustomerSalesReport";
+import PurchaseAnalyticsPanel from "./PurchaseAnalyticsPanel";
 import Header from "../(components)/Header";
 
 const Dashboard = () => {
@@ -31,9 +32,7 @@ const Dashboard = () => {
     const totalProducts = products?.length || 0;
     
     const totalRevenue =
-      billings
-        ?.filter((b) => b.paymentStatus === "success")
-        .reduce((sum, b) => sum + b.totalAmount, 0) || 0;
+      billings?.reduce((sum, b) => sum + b.totalAmount, 0) || 0;
 
     const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
 
@@ -144,6 +143,11 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProductSalesReport />
         <CustomerSalesReport />
+      </div>
+
+      {/* PURCHASE ANALYTICS */}
+      <div className="mt-6">
+        <PurchaseAnalyticsPanel />
       </div>
     </div>
   );

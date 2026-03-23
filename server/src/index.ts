@@ -11,6 +11,8 @@ import expenseRoutes from "./routes/expenseRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import billingRoutes from "./routes/billingRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import supplierRoutes from "./routes/supplierRoutes.js";
+import purchaseRoutes from "./routes/purchaseRoutes.js";
 import { protect } from "./middleware/auth.middleware.js";
 import cookieParser from "cookie-parser";
 
@@ -41,3 +43,5 @@ app.use("/products", protect, productRoutes);
 app.use("/expenses", protect, expenseRoutes);
 app.use("/customers", protect, customerRoutes);
 app.use("/billing", protect, billingRoutes);
+app.use("/suppliers", protect, supplierRoutes);
+app.use("/purchases", protect, purchaseRoutes);

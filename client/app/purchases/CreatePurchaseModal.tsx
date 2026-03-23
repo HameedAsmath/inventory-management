@@ -1,86 +1,71 @@
 "use client";
 
-import React, { FormEvent, useState, useEffect } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  useGetCustomersQuery,
   useGetProductsQuery,
+  useGetSuppliersQuery,
   type Product,
 } from "../state/api";
 import {
-  Plus,
-  Trash2,
-  Search,
-  X,
-  ShoppingCart,
-  User,
-  Package,
+  Calendar,
   CheckCircle2,
+  Package,
+  Plus,
+  Search,
+  ShoppingCart,
+  Store,
+  Trash2,
+  X,
 } from "lucide-react";
-import { v4 } from "uuid";
 
-type BillingItemInput = {
+type PurchaseItemInput = {
   productId: string;
   productName: string;
   quantity: number;
-  price: number;
-  price1: number;
-  price2: number | null;
-  selectedPriceType: "price1" | "price2";
-  discountInput: string;
-  maxStock: number;
+  costPrice: number;
 };
 
-function parseDiscount(input: string, gross: number): number {
-  const trimmed = input.trim();
-  if (!trimmed) return 0;
-  if (trimmed.endsWith("%")) {
-    const pct = parseFloat(trimmed.slice(0, -1));
-    if (isNaN(pct) || pct < 0) return 0;
-    const clamped = Math.min(pct, 100);
-    return Math.round((gross * clamped) / 100 * 100) / 100;
-  }
-  const amt = parseFloat(trimmed);
-  if (isNaN(amt) || amt < 0) return 0;
-  return Math.min(amt, gross);
-}
-
-type CreateBillingData = {
-  billingId: string;
-  customerId: string;
-  totalAmount: number;
-  pnfCharges: number;
+export type CreatePurchaseData = {
+  supplierId: string;
+  purchaseDate: string;
+  notes?: string;
   items: Array<{
     productId: string;
     quantity: number;
-    price: number;
-    discount: number;
+    costPrice: number;
   }>;
 };
 
-type CreateBillingModalProps = {
+type CreatePurchaseModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (data: CreateBillingData) => void;
+  onCreate: (data: CreatePurchaseData) => void;
 };
 
-const CreateBillingModal = ({
+const CreatePurchaseModal = ({
   isOpen,
   onClose,
   onCreate,
-}: CreateBillingModalProps) => {
-  const [customerId, setCustomerId] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [selectedCustomerName, setSelectedCustomerName] = useState("");
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [items, setItems] = useState<BillingItemInput[]>([]);
+}: CreatePurchaseModalProps) => {
+  const [supplierId, setSupplierId] = useState("");
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [selectedSupplierName, setSelectedSupplierName] = useState("");
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+
+  const [purchaseDate, setPurchaseDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [notes, setNotes] = useState("");
+
+  const [items, setItems] = useState<PurchaseItemInput[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
-  const [pnfEnabled, setPnfEnabled] = useState(false);
-  const [pnfAmount, setPnfAmount] = useState("");
   const [error, setError] = useState("");
 
-  const { data: customers } = useGetCustomersQuery(customerSearch);
-  const { data: products } = useGetProductsQuery(productSearch);
+  const { data: suppliers } = useGetSuppliersQuery(supplierSearch);
+  const { data: products } = useGetProductsQuery(
+    productSearch ? { search: productSearch } : undefined,
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -88,58 +73,40 @@ const CreateBillingModal = ({
     }
   }, [isOpen]);
 
-  const itemsTotal = items.reduce((sum, item) => {
-    const gross = item.price * item.quantity;
-    const disc = parseDiscount(item.discountInput, gross);
-    return sum + Math.max(0, gross - disc);
-  }, 0);
+  const totalAmount = useMemo(
+    () => items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0),
+    [items],
+  );
 
-  const pnfValue = pnfEnabled ? (parseFloat(pnfAmount) || 0) : 0;
-  const totalAmount = itemsTotal + pnfValue;
-
-  const handleSelectCustomer = (id: string) => {
-    setCustomerId(id);
-    const customer = customers?.find((c) => c.customerId === id);
-    setSelectedCustomerName(customer?.name || id);
-    setCustomerSearch(customer?.name || id);
-    setShowCustomerDropdown(false);
+  const handleSelectSupplier = (id: string) => {
+    setSupplierId(id);
+    const supplier = suppliers?.find((s) => s.supplierId === id);
+    setSelectedSupplierName(supplier?.name || id);
+    setSupplierSearch(supplier?.name || id);
+    setShowSupplierDropdown(false);
   };
 
-  const handleClearCustomer = () => {
-    setCustomerId("");
-    setSelectedCustomerName("");
-    setCustomerSearch("");
+  const handleClearSupplier = () => {
+    setSupplierId("");
+    setSelectedSupplierName("");
+    setSupplierSearch("");
   };
 
   const handleAddProduct = (product: Product) => {
-    if (items.find((item) => item.productId === product.productId)) {
-      setError(
-        `${product.name} is already added. Adjust the quantity instead.`,
-      );
+    if (items.some((item) => item.productId === product.productId)) {
+      setError(`${product.name} is already added. Adjust the quantity instead.`);
       setShowProductDropdown(false);
       setProductSearch("");
       return;
     }
 
-    if (product.stockQuantity <= 0) {
-      setError(`${product.name} is out of stock.`);
-      setShowProductDropdown(false);
-      setProductSearch("");
-      return;
-    }
-
-    setItems([
-      ...items,
+    setItems((prev) => [
+      ...prev,
       {
         productId: product.productId,
         productName: product.name,
         quantity: 1,
-        price: product.price1,
-        price1: product.price1,
-        price2: product.price2 ?? null,
-        selectedPriceType: "price1",
-        discountInput: "",
-        maxStock: product.stockQuantity,
+        costPrice: product.cp ?? 0,
       },
     ]);
     setProductSearch("");
@@ -148,47 +115,24 @@ const CreateBillingModal = ({
   };
 
   const handleRemoveItem = (productId: string) => {
-    setItems(items.filter((item) => item.productId !== productId));
-  };
-
-  const handlePriceTypeChange = (
-    productId: string,
-    priceType: "price1" | "price2",
-  ) => {
-    setItems(
-      items.map((item) =>
-        item.productId === productId
-          ? {
-              ...item,
-              selectedPriceType: priceType,
-              price:
-                priceType === "price1"
-                  ? item.price1
-                  : (item.price2 ?? item.price1),
-            }
-          : item,
-      ),
-    );
-  };
-
-  const handleDiscountChange = (productId: string, value: string) => {
-    setItems(
-      items.map((item) =>
-        item.productId === productId
-          ? { ...item, discountInput: value }
-          : item,
-      ),
-    );
+    setItems((prev) => prev.filter((item) => item.productId !== productId));
   };
 
   const handleQuantityChange = (productId: string, quantity: number) => {
-    setItems(
-      items.map((item) =>
+    setItems((prev) =>
+      prev.map((item) =>
         item.productId === productId
-          ? {
-              ...item,
-              quantity: Math.max(1, Math.min(quantity, item.maxStock)),
-            }
+          ? { ...item, quantity: Math.max(1, quantity) }
+          : item,
+      ),
+    );
+  };
+
+  const handleCostPriceChange = (productId: string, costPrice: number) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.productId === productId
+          ? { ...item, costPrice: Math.max(0, costPrice) }
           : item,
       ),
     );
@@ -198,48 +142,49 @@ const CreateBillingModal = ({
     e.preventDefault();
     setError("");
 
-    if (!customerId) {
-      setError("Please select a customer.");
+    if (!supplierId) {
+      setError("Please select a supplier.");
+      return;
+    }
+    if (!purchaseDate) {
+      setError("Please choose a purchase date.");
       return;
     }
     if (items.length === 0) {
       setError("Please add at least one product.");
       return;
     }
+    if (items.some((item) => item.costPrice <= 0)) {
+      setError("Cost price must be greater than 0 for all items.");
+      return;
+    }
 
-    const billingData = {
-      customerId,
-      totalAmount,
-      pnfCharges: pnfValue,
-      items: items.map((item) => {
-        const gross = item.price * item.quantity;
-        const discount = parseDiscount(item.discountInput, gross);
-        return {
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-          discount,
-        };
-      }),
+    const payload: CreatePurchaseData = {
+      supplierId,
+      purchaseDate: new Date(purchaseDate).toISOString(),
+      notes: notes.trim() || undefined,
+      items: items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        costPrice: item.costPrice,
+      })),
     };
 
-    const createData: CreateBillingData = {
-      billingId: `BILL-${v4().slice(0, 8).toUpperCase()}`,
-      ...billingData,
-    };
-    onCreate(createData);
+    onCreate(payload);
     resetForm();
   };
 
   const resetForm = () => {
-    setCustomerId("");
-    setSelectedCustomerName("");
-    setCustomerSearch("");
+    setSupplierId("");
+    setSupplierSearch("");
+    setSelectedSupplierName("");
+    setShowSupplierDropdown(false);
+    setPurchaseDate(new Date().toISOString().split("T")[0]);
+    setNotes("");
     setItems([]);
-    setError("");
     setProductSearch("");
-    setPnfEnabled(false);
-    setPnfAmount("");
+    setShowProductDropdown(false);
+    setError("");
   };
 
   const handleClose = () => {
@@ -251,20 +196,14 @@ const CreateBillingModal = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* BACKDROP */}
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-
-      {/* MODAL */}
       <div className="flex min-h-full items-start justify-center p-4 pt-10">
         <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
-          {/* HEADER */}
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                Create New Bill
-              </h2>
+              <h2 className="text-lg font-semibold text-gray-900">Create Purchase</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Select a customer and add products to generate an invoice
+                Select supplier and add purchased products
               </p>
             </div>
             <button
@@ -277,7 +216,6 @@ const CreateBillingModal = ({
 
           <form onSubmit={handleSubmit}>
             <div className="p-6 space-y-6">
-              {/* ERROR MESSAGE */}
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
@@ -285,33 +223,28 @@ const CreateBillingModal = ({
                 </div>
               )}
 
-              {/* SECTION: CUSTOMER */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-                    <User className="w-3.5 h-3.5 text-blue-600" />
+                    <Store className="w-3.5 h-3.5 text-blue-600" />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-800">
-                    Customer
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-800">Supplier</h3>
                 </div>
 
-                {customerId ? (
+                {supplierId ? (
                   <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                     <div className="flex items-center gap-3">
                       <CheckCircle2 className="w-4 h-4 text-blue-600" />
                       <div>
                         <p className="text-sm font-medium text-gray-900">
-                          {selectedCustomerName}
+                          {selectedSupplierName}
                         </p>
-                        <p className="text-xs text-gray-500 font-mono">
-                          {customerId}
-                        </p>
+                        <p className="text-xs text-gray-500 font-mono">{supplierId}</p>
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={handleClearCustomer}
+                      onClick={handleClearSupplier}
                       className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-blue-100 transition-colors"
                     >
                       <X className="w-4 h-4" />
@@ -322,34 +255,34 @@ const CreateBillingModal = ({
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search for a customer..."
-                      value={customerSearch}
+                      placeholder="Search supplier..."
+                      value={supplierSearch}
                       onChange={(e) => {
-                        setCustomerSearch(e.target.value);
-                        setShowCustomerDropdown(true);
+                        setSupplierSearch(e.target.value);
+                        setShowSupplierDropdown(true);
                       }}
-                      onFocus={() => setShowCustomerDropdown(true)}
+                      onFocus={() => setShowSupplierDropdown(true)}
                       onBlur={() =>
-                        setTimeout(() => setShowCustomerDropdown(false), 200)
+                        setTimeout(() => setShowSupplierDropdown(false), 200)
                       }
                       className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                     />
-                    {showCustomerDropdown &&
-                      customers &&
-                      customers.length > 0 && (
+                    {showSupplierDropdown &&
+                      suppliers &&
+                      suppliers.length > 0 && (
                         <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto">
-                          {customers.map((customer) => (
+                          {suppliers.map((supplier) => (
                             <button
-                              key={customer.customerId}
+                              key={supplier.supplierId}
                               type="button"
                               onClick={() =>
-                                handleSelectCustomer(customer.customerId)
+                                handleSelectSupplier(supplier.supplierId)
                               }
                               className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-3 border-b border-gray-50 last:border-b-0 transition-colors"
                             >
                               <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center shrink-0">
                                 <span className="text-xs font-semibold text-gray-600">
-                                  {customer.name
+                                  {supplier.name
                                     .split(" ")
                                     .map((n) => n[0])
                                     .join("")
@@ -359,11 +292,10 @@ const CreateBillingModal = ({
                               </div>
                               <div>
                                 <p className="font-medium text-gray-800">
-                                  {customer.name}
+                                  {supplier.name}
                                 </p>
                                 <p className="text-xs text-gray-400">
-                                  {customer.customerId}
-                                  {customer.email && ` · ${customer.email}`}
+                                  {supplier.supplierId}
                                 </p>
                               </div>
                             </button>
@@ -374,18 +306,40 @@ const CreateBillingModal = ({
                 )}
               </div>
 
-              {/* SECTION: PRODUCTS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    Purchase Date
+                  </label>
+                  <div className="relative mt-1">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="date"
+                      value={purchaseDate}
+                      onChange={(e) => setPurchaseDate(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Notes</label>
+                  <input
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Optional notes"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
                     <Package className="w-3.5 h-3.5 text-emerald-600" />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-800">
-                    Products
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-800">Products</h3>
                 </div>
 
-                {/* SEARCH PRODUCTS */}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -402,14 +356,15 @@ const CreateBillingModal = ({
                     }
                     className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                   />
+
                   {showProductDropdown &&
                     productSearch &&
                     products &&
                     products.length > 0 && (
-                      <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto">
+                      <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto">
                         {products.map((product) => {
                           const alreadyAdded = items.some(
-                            (i) => i.productId === product.productId,
+                            (item) => item.productId === product.productId,
                           );
                           return (
                             <button
@@ -420,9 +375,7 @@ const CreateBillingModal = ({
                               className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
                                 alreadyAdded
                                   ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                  : product.stockQuantity <= 0
-                                    ? "opacity-50"
-                                    : "hover:bg-gray-50"
+                                  : "hover:bg-gray-50"
                               }`}
                             >
                               <div className="flex items-center gap-3">
@@ -432,30 +385,15 @@ const CreateBillingModal = ({
                                 <div>
                                   <p className="font-medium text-gray-800">
                                     {product.name}
-                                    {alreadyAdded && (
-                                      <span className="ml-2 text-xs text-gray-400">
-                                        (added)
-                                      </span>
-                                    )}
                                   </p>
                                   <p className="text-xs text-gray-400">
-                                    ₹{product.price1.toFixed(2)}
+                                    CP: ₹{(product.cp ?? 0).toFixed(2)}
                                   </p>
                                 </div>
                               </div>
-                              <span
-                                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                                  product.stockQuantity <= 0
-                                    ? "bg-red-50 text-red-600"
-                                    : product.stockQuantity <= 5
-                                      ? "bg-amber-50 text-amber-600"
-                                      : "bg-emerald-50 text-emerald-600"
-                                }`}
-                              >
-                                {product.stockQuantity <= 0
-                                  ? "Out of stock"
-                                  : `${product.stockQuantity} in stock`}
-                              </span>
+                              {alreadyAdded && (
+                                <span className="text-xs text-gray-400">(added)</span>
+                              )}
                             </button>
                           );
                         })}
@@ -463,7 +401,6 @@ const CreateBillingModal = ({
                     )}
                 </div>
 
-                {/* ITEMS TABLE */}
                 {items.length > 0 ? (
                   <div className="mt-4 bg-white rounded-lg border border-gray-200 overflow-hidden">
                     <table className="w-full text-sm">
@@ -476,32 +413,22 @@ const CreateBillingModal = ({
                             Qty
                           </th>
                           <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
-                            Price
-                          </th>
-                          <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
-                            Discount
+                            Cost Price
                           </th>
                           <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
                             Subtotal
                           </th>
-                          <th className="w-10 px-2 py-2.5"></th>
+                          <th className="w-10 px-2 py-2.5" />
                         </tr>
                       </thead>
                       <tbody>
                         {items.map((item, idx) => (
                           <tr
                             key={item.productId}
-                            className={
-                              idx !== 0 ? "border-t border-gray-100" : ""
-                            }
+                            className={idx !== 0 ? "border-t border-gray-100" : ""}
                           >
-                            <td className="px-4 py-3">
-                              <p className="text-gray-800 font-medium">
-                                {item.productName}
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                Stock: {item.maxStock}
-                              </p>
+                            <td className="px-4 py-3 text-gray-800 font-medium">
+                              {item.productName}
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden">
@@ -520,7 +447,6 @@ const CreateBillingModal = ({
                                 <input
                                   type="number"
                                   min={1}
-                                  max={item.maxStock}
                                   value={item.quantity}
                                   onChange={(e) =>
                                     handleQuantityChange(
@@ -544,72 +470,23 @@ const CreateBillingModal = ({
                                 </button>
                               </div>
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-col items-end gap-1">
-                                {item.price2 != null ? (
-                                  <select
-                                    value={item.selectedPriceType}
-                                    onChange={(e) =>
-                                      handlePriceTypeChange(
-                                        item.productId,
-                                        e.target.value as "price1" | "price2",
-                                      )
-                                    }
-                                    className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                  >
-                                    <option value="price1">price 1</option>
-                                    <option value="price2">price 2</option>
-                                  </select>
-                                ) : (
-                                  <span className="text-xs text-gray-400">
-                                    price 1
-                                  </span>
-                                )}
-                                <span className="text-sm text-gray-700 font-medium">
-                                  ₹{item.price.toFixed(2)}
-                                </span>
-                              </div>
-                            </td>
                             <td className="px-4 py-3 text-right">
                               <input
-                                type="text"
-                                placeholder="0"
-                                value={item.discountInput}
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={item.costPrice}
                                 onChange={(e) =>
-                                  handleDiscountChange(
+                                  handleCostPriceChange(
                                     item.productId,
-                                    e.target.value,
+                                    Number(e.target.value),
                                   )
                                 }
-                                className="w-20 text-right text-sm border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300"
-                                title="Enter amount (e.g. 50) or percentage (e.g. 10%)"
+                                className="w-28 text-right text-sm border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                               />
-                              {(() => {
-                                const gross = item.price * item.quantity;
-                                const disc = parseDiscount(item.discountInput, gross);
-                                return disc > 0 ? (
-                                  <p className="text-xs text-red-500 mt-0.5">
-                                    −₹{disc.toFixed(2)}
-                                  </p>
-                                ) : null;
-                              })()}
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                              {(() => {
-                                const gross = item.price * item.quantity;
-                                const disc = parseDiscount(item.discountInput, gross);
-                                const sub = Math.max(0, gross - disc);
-                                return (
-                                  <>
-                                    {disc > 0 && (
-                                      <span className="text-xs text-gray-400 line-through mr-1">
-                                        ₹{gross.toFixed(2)}
-                                      </span>
-                                    )}
-                                    ₹{sub.toFixed(2)}
-                                  </>
-                                );
-                              })()}
+                              ₹{(item.quantity * item.costPrice).toFixed(2)}
                             </td>
                             <td className="px-2 py-3 text-center">
                               <button
@@ -628,58 +505,18 @@ const CreateBillingModal = ({
                 ) : (
                   <div className="mt-4 flex flex-col items-center justify-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
                     <ShoppingCart className="w-8 h-8 text-gray-300 mb-2" />
-                    <p className="text-sm text-gray-400">
-                      No products added yet
-                    </p>
+                    <p className="text-sm text-gray-400">No products added yet</p>
                     <p className="text-xs text-gray-300 mt-0.5">
-                      Search above to add products to the bill
+                      Search above to add products to this purchase
                     </p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* FOOTER */}
-            <div className="border-t border-gray-100 px-6 py-4 space-y-4">
-              {/* P&F CHARGES */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={pnfEnabled}
-                    onChange={(e) => {
-                      setPnfEnabled(e.target.checked);
-                      if (!e.target.checked) setPnfAmount("");
-                    }}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    P&F Charges
-                  </span>
-                </label>
-                {pnfEnabled && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">₹</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={pnfAmount}
-                      onChange={(e) => setPnfAmount(e.target.value)}
-                      className="w-28 text-right text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                )}
-              </div>
-
+            <div className="border-t border-gray-100 px-6 py-4">
               <div className="flex items-center justify-between">
                 <div>
-                  {pnfEnabled && pnfValue > 0 && (
-                    <p className="text-xs text-gray-400 mb-0.5">
-                      Items: ₹{itemsTotal.toFixed(2)} + P&F: ₹{pnfValue.toFixed(2)}
-                    </p>
-                  )}
                   <p className="text-xs text-gray-500 uppercase font-medium tracking-wider">
                     Grand Total
                   </p>
@@ -697,11 +534,11 @@ const CreateBillingModal = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={!customerId || items.length === 0}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
+                    disabled={!supplierId || items.length === 0}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="w-4 h-4" />
-                    Create Bill
+                    Create Purchase
                   </button>
                 </div>
               </div>
@@ -713,4 +550,4 @@ const CreateBillingModal = ({
   );
 };
 
-export default CreateBillingModal;
+export default CreatePurchaseModal;

@@ -21,9 +21,7 @@ const ProductSalesReport = () => {
 
     const productMap = new Map<string, ProductSalesData>();
 
-    billings
-      .filter((b) => b.paymentStatus === "success")
-      .forEach((billing) => {
+    billings.forEach((billing) => {
         billing.BillingItem.forEach((item) => {
           const existing = productMap.get(item.productId);
           if (existing) {
@@ -104,7 +102,7 @@ const ProductSalesReport = () => {
       ) : (
         <>
           {/* Summary Card */}
-          <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+          <div className="mb-6 p-4 bg-linear-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-600 mb-1">Total Product Revenue</p>
@@ -129,7 +127,7 @@ const ProductSalesReport = () => {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-start gap-3 flex-1">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <div className="shrink-0 w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
                         <span className="text-xs font-bold text-blue-700">
                           #{index + 1}
                         </span>

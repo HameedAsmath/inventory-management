@@ -2,13 +2,15 @@
 
 import {
   useGetCustomersQuery,
-  useGetCustomerByIdQuery,
+  useGetCustomerLedgerQuery,
   useCreateCustomerMutation,
   useUpdateCustomerMutation,
   useDeleteCustomerMutation,
+  useRecordCustomerPaymentMutation,
+  useUpdateCustomerPaymentMutation,
+  useDeleteCustomerPaymentMutation,
   useSendCustomerStatementEmailMutation,
   type Customer,
-  type PaymentStatus,
 } from "../state/api";
 import {
   Plus,
@@ -23,12 +25,13 @@ import {
   X,
   FileText,
   Clock,
-  Filter,
   AlertCircle,
   FileDown,
   Loader2,
+  Wallet,
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Header from "@/app/(components)/Header";
 import CreateCustomerModal from "./CreateCustomerModal";
 import { toast } from "sonner";
@@ -38,30 +41,6 @@ type CustomerFormData = {
   name: string;
   email: string;
   address: string;
-};
-
-const getStatusColor = (status: PaymentStatus) => {
-  switch (status) {
-    case "success":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "cancelled":
-      return "bg-red-50 text-red-700 border-red-200";
-    case "pending":
-    default:
-      return "bg-amber-50 text-amber-700 border-amber-200";
-  }
-};
-
-const getStatusLabel = (status: PaymentStatus) => {
-  switch (status) {
-    case "success":
-      return "Paid";
-    case "cancelled":
-      return "Cancelled";
-    case "pending":
-    default:
-      return "Pending";
-  }
 };
 
 const formatDate = (timestamp: string) =>
@@ -80,26 +59,31 @@ const CustomerBillsModal = ({
   customerName: string;
   onClose: () => void;
 }) => {
-  const { data: customerData, isLoading } = useGetCustomerByIdQuery(customerId);
+  const { data: customerData, isLoading } = useGetCustomerLedgerQuery(customerId);
   const [sendStatementEmail, { isLoading: isSending }] =
     useSendCustomerStatementEmailMutation();
+  const [recordPayment, { isLoading: isRecording }] =
+    useRecordCustomerPaymentMutation();
+  const [updatePayment, { isLoading: isUpdatingPayment }] =
+    useUpdateCustomerPaymentMutation();
+  const [deletePayment, { isLoading: isDeletingPayment }] =
+    useDeleteCustomerPaymentMutation();
+  const [amountInput, setAmountInput] = useState("");
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [editingAmountInput, setEditingAmountInput] = useState("");
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">(
-    "all",
-  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const billings = useMemo(
-    () => customerData?.Billing ?? [],
-    [customerData?.Billing],
+  const billings = useMemo(() => customerData?.bills ?? [], [customerData?.bills]);
+  const payments = useMemo(
+    () => customerData?.payments ?? [],
+    [customerData?.payments],
   );
   const filteredBills = useMemo(() => {
     return billings.filter((bill) => {
-      if (statusFilter !== "all" && bill.paymentStatus !== statusFilter)
-        return false;
       if (dateFrom && new Date(bill.timestamp) < new Date(dateFrom))
         return false;
       if (dateTo) {
@@ -109,23 +93,32 @@ const CustomerBillsModal = ({
       }
       return true;
     });
-  }, [billings, statusFilter, dateFrom, dateTo]);
+  }, [billings, dateFrom, dateTo]);
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter((payment) => {
+      if (dateFrom && new Date(payment.timestamp) < new Date(dateFrom))
+        return false;
+      if (dateTo) {
+        const toEnd = new Date(dateTo);
+        toEnd.setHours(23, 59, 59, 999);
+        if (new Date(payment.timestamp) > toEnd) return false;
+      }
+      return true;
+    });
+  }, [payments, dateFrom, dateTo]);
 
   const summaryTotal = filteredBills.reduce((s, b) => s + b.totalAmount, 0);
-  const summaryPaid = filteredBills.reduce((s, b) => s + b.paidAmount, 0);
-  const summaryOutstanding = summaryTotal - summaryPaid;
+  const summaryPaid = filteredPayments.reduce((s, p) => s + p.amount, 0);
 
   const clearFilters = () => {
-    setStatusFilter("all");
     setDateFrom("");
     setDateTo("");
   };
 
-  const hasActiveFilters =
-    statusFilter !== "all" || dateFrom !== "" || dateTo !== "";
+  const hasActiveFilters = dateFrom !== "" || dateTo !== "";
 
   const filterParams = new URLSearchParams();
-  if (statusFilter !== "all") filterParams.set("status", statusFilter);
   if (dateFrom) filterParams.set("from", dateFrom);
   if (dateTo) filterParams.set("to", dateTo);
   const qs = filterParams.toString();
@@ -137,7 +130,7 @@ const CustomerBillsModal = ({
 
   const handleSendEmail = async () => {
     const email =
-      customerData?.email ||
+      customerData?.customer?.email ||
       window.prompt("Enter email address to send statement to:");
     if (!email) return;
 
@@ -145,11 +138,74 @@ const CustomerBillsModal = ({
       const result = await sendStatementEmail({
         customerId,
         email,
-        status: statusFilter !== "all" ? statusFilter : undefined,
         from: dateFrom || undefined,
         to: dateTo || undefined,
       }).unwrap();
       toast.success(result.message || "Statement sent successfully!");
+    } catch {
+      // error toast handled globally
+    }
+  };
+
+  const handleRecordPayment = async () => {
+    const amount = parseFloat(amountInput);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a valid payment amount");
+      return;
+    }
+    try {
+      await recordPayment({ customerId, amount }).unwrap();
+      toast.success("Payment recorded");
+      setAmountInput("");
+    } catch {
+      // error toast handled globally
+    }
+  };
+
+  const handleStartEditPayment = (paymentId: string, amount: number) => {
+    setEditingPaymentId(paymentId);
+    setEditingAmountInput(String(amount));
+  };
+
+  const isPaymentLocked = (paymentTimestamp: string) => {
+    const paymentTime = new Date(paymentTimestamp).getTime();
+    return billings.some(
+      (bill) => new Date(bill.timestamp).getTime() > paymentTime,
+    );
+  };
+
+  const handleSavePaymentEdit = async (paymentId: string) => {
+    const amount = parseFloat(editingAmountInput);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a valid payment amount");
+      return;
+    }
+    try {
+      await updatePayment({ customerId, paymentId, amount }).unwrap();
+      toast.success("Payment updated");
+      setEditingPaymentId(null);
+      setEditingAmountInput("");
+    } catch {
+      // error toast handled globally
+    }
+  };
+
+  const handleDeletePayment = async (
+    paymentId: string,
+    paymentTimestamp: string,
+  ) => {
+    if (isPaymentLocked(paymentTimestamp)) {
+      toast.error("Cannot delete payment already used by bill balances");
+      return;
+    }
+    if (!window.confirm("Delete this payment entry?")) return;
+    try {
+      await deletePayment({ customerId, paymentId }).unwrap();
+      toast.success("Payment deleted");
+      if (editingPaymentId === paymentId) {
+        setEditingPaymentId(null);
+        setEditingAmountInput("");
+      }
     } catch {
       // error toast handled globally
     }
@@ -162,7 +218,7 @@ const CustomerBillsModal = ({
         onClick={onClose}
       />
       <div className="flex min-h-full items-start justify-center p-4 pt-10">
-        <div className="relative w-full max-w-3xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
+        <div className="relative w-full max-w-6xl h-[90vh] rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10 flex flex-col">
           {/* HEADER */}
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
@@ -170,7 +226,7 @@ const CustomerBillsModal = ({
                 {customerName}
               </h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Bill history &amp; payment details
+                Ledger, payments and balance
               </p>
             </div>
             <button
@@ -183,10 +239,10 @@ const CustomerBillsModal = ({
 
           {/* SUMMARY */}
           {!isLoading && customerData && (
-            <div className="grid grid-cols-3 gap-4 px-6 pt-5 pb-2">
+            <div className="grid grid-cols-4 gap-4 px-6 pt-5 pb-2">
               <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-center">
                 <p className="text-xs text-blue-600 font-medium uppercase tracking-wider">
-                  Total
+                  Billed
                 </p>
                 <p className="text-lg font-bold text-blue-800 mt-0.5">
                   ₹{summaryTotal.toFixed(2)}
@@ -194,7 +250,7 @@ const CustomerBillsModal = ({
               </div>
               <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-center">
                 <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider">
-                  Paid
+                  Received
                 </p>
                 <p className="text-lg font-bold text-emerald-800 mt-0.5">
                   ₹{summaryPaid.toFixed(2)}
@@ -205,33 +261,51 @@ const CustomerBillsModal = ({
                   Outstanding
                 </p>
                 <p className="text-lg font-bold text-amber-800 mt-0.5">
-                  ₹{summaryOutstanding.toFixed(2)}
+                  ₹{(customerData.outstanding || 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-center">
+                <p className="text-xs text-indigo-600 font-medium uppercase tracking-wider">
+                  Credit
+                </p>
+                <p className="text-lg font-bold text-indigo-800 mt-0.5">
+                  ₹{(customerData.credit || 0).toFixed(2)}
                 </p>
               </div>
             </div>
           )}
 
+          <div className="px-6 pb-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 flex items-center gap-3">
+              <Wallet className="w-4 h-4 text-gray-500" />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Enter amount received"
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                className="w-48 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleRecordPayment}
+                disabled={isRecording}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isRecording ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <DollarSign className="w-4 h-4" />
+                )}
+                Record Payment
+              </button>
+            </div>
+          </div>
+
           {/* FILTERS */}
           <div className="px-6 py-4 border-b border-gray-100">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-1.5 text-gray-500">
-                <Filter className="w-3.5 h-3.5" />
-                <span className="text-xs font-medium uppercase tracking-wider">
-                  Filter
-                </span>
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as PaymentStatus | "all")
-                }
-                className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="success">Paid</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
               <div className="flex items-center gap-1.5">
                 <label className="text-xs text-gray-500 font-medium">
                   From
@@ -263,97 +337,199 @@ const CustomerBillsModal = ({
             </div>
           </div>
 
-          {/* BILLS LIST */}
-          <div className="px-6 py-4 max-h-[50vh] overflow-y-auto">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-              </div>
-            ) : filteredBills.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <FileText className="w-8 h-8 text-gray-300 mb-2" />
-                <p className="text-sm text-gray-500 font-medium">
-                  {hasActiveFilters
-                    ? "No bills match the selected filters"
-                    : "No bills found for this customer"}
+          <div className="px-6 py-4 flex-1 min-h-0">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full min-h-0">
+              {/* BILLS LIST */}
+              <div className="lg:col-span-2 border border-gray-100 rounded-xl p-3 min-h-0 flex flex-col">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">
+                  Bills
                 </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredBills.map((bill) => {
-                  const outstanding = bill.totalAmount - bill.paidAmount;
-                  return (
-                    <div
-                      key={bill.billingId}
-                      className="rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-                            <FileText className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">
-                              {bill.billingId}
-                            </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-gray-400 flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDate(bill.timestamp)}
-                              </span>
-                              <span
-                                className={`inline-flex items-center text-xs font-medium rounded-full px-2 py-0.5 border ${getStatusColor(
-                                  bill.paymentStatus,
-                                )}`}
-                              >
-                                {getStatusLabel(bill.paymentStatus)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-10">
+                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+                    </div>
+                  ) : filteredBills.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <FileText className="w-8 h-8 text-gray-300 mb-2" />
+                      <p className="text-sm text-gray-500 font-medium">
+                        {hasActiveFilters
+                          ? "No bills match the selected filters"
+                          : "No bills found for this customer"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 pr-1">
+                      {filteredBills.map((bill) => {
+                        return (
+                          <div
+                            key={bill.billingId}
+                            className="rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition-colors"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                                  <FileText className="w-4 h-4 text-blue-500" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900">
+                                    {bill.billingId}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {formatDate(bill.timestamp)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
 
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-gray-900">
-                            ₹{bill.totalAmount.toFixed(2)}
-                          </p>
-                          {bill.paymentStatus !== "cancelled" && (
-                            <div className="flex items-center gap-3 mt-0.5 justify-end">
-                              <span className="text-xs text-emerald-600 font-medium">
-                                Paid: ₹{bill.paidAmount.toFixed(2)}
-                              </span>
-                              {outstanding > 0 && (
-                                <span className="text-xs text-amber-600 font-semibold">
-                                  Due: ₹{outstanding.toFixed(2)}
-                                </span>
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-gray-900">
+                                  ₹{bill.totalAmount.toFixed(2)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {bill.BillingItem.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-gray-100">
+                                <div className="flex flex-wrap gap-2">
+                                  {bill.BillingItem.map((item) => (
+                                    <span
+                                      key={item.billingItemId}
+                                      className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 rounded-md px-2 py-1"
+                                    >
+                                      {item.product.name}
+                                      <span className="text-gray-400">
+                                        ×{item.quantity}
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* PAYMENT HISTORY RIGHT SIDE */}
+              <div className="border border-gray-100 rounded-xl p-3 min-h-0 flex flex-col">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">
+                  Payment History
+                </p>
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-10">
+                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+                    </div>
+                  ) : filteredPayments.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-2">
+                      No payment records for the selected period.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 pr-1">
+                      {filteredPayments.map((payment) => {
+                        const paymentLocked = isPaymentLocked(payment.timestamp);
+                        return (
+                          <div
+                            key={payment.paymentId}
+                            className="rounded-lg border border-gray-200 px-3 py-2"
+                          >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-900">
+                                {payment.type === "advance" ? "Advance" : "Payment"}
+                              </p>
+                              <p className="text-xs text-gray-400 truncate">
+                                {payment.paymentId} · {formatDate(payment.timestamp)}
+                              </p>
+                              {paymentLocked && (
+                                <p className="text-xs text-amber-600 mt-1">
+                                  Locked: bill already created after this payment
+                                </p>
                               )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Bill items */}
-                      {bill.BillingItem.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-gray-100">
-                          <div className="flex flex-wrap gap-2">
-                            {bill.BillingItem.map((item) => (
-                              <span
-                                key={item.billingItemId}
-                                className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 rounded-md px-2 py-1"
-                              >
-                                {item.product.name}
-                                <span className="text-gray-400">
-                                  ×{item.quantity}
-                                </span>
-                              </span>
-                            ))}
+                            {editingPaymentId === payment.paymentId ? (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={editingAmountInput}
+                                  onChange={(e) => setEditingAmountInput(e.target.value)}
+                                  className="w-24 rounded border border-gray-300 px-2 py-1 text-sm text-right"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePaymentEdit(payment.paymentId)}
+                                  disabled={isUpdatingPayment}
+                                  className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPaymentId(null);
+                                    setEditingAmountInput("");
+                                  }}
+                                  className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <p className="text-sm font-semibold text-emerald-600">
+                                  ₹{payment.amount.toFixed(2)}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (paymentLocked) {
+                                      toast.error(
+                                        "Cannot edit payment already used by bill balances",
+                                      );
+                                      return;
+                                    }
+                                    handleStartEditPayment(
+                                      payment.paymentId,
+                                      payment.amount,
+                                    );
+                                  }}
+                                  disabled={paymentLocked}
+                                  className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeletePayment(
+                                      payment.paymentId,
+                                      payment.timestamp,
+                                    )
+                                  }
+                                  disabled={isDeletingPayment || paymentLocked}
+                                  className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  )}
+                </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* FOOTER */}
@@ -404,6 +580,8 @@ const CustomerBillsModal = ({
 };
 
 const Customers = () => {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -422,6 +600,30 @@ const Customers = () => {
   const [createCustomer] = useCreateCustomerMutation();
   const [updateCustomer] = useUpdateCustomerMutation();
   const [deleteCustomer] = useDeleteCustomerMutation();
+
+  const viewingCustomerFromQuery = useMemo(() => {
+    if (!customers) return null;
+    const openCustomerId = searchParams.get("openCustomerId");
+    const openCustomerNameFromQuery = searchParams.get("openCustomerName");
+    if (!openCustomerId) return null;
+
+    const matchedCustomer = customers.find(
+      (c) => c.customerId === openCustomerId,
+    );
+    return {
+      id: openCustomerId,
+      name: matchedCustomer?.name || openCustomerNameFromQuery || openCustomerId,
+    };
+  }, [searchParams, customers]);
+
+  const activeViewingCustomer = viewingCustomer ?? viewingCustomerFromQuery;
+
+  const handleCloseCustomerBillsModal = () => {
+    setViewingCustomer(null);
+    if (searchParams.get("openCustomerId")) {
+      router.replace("/customers");
+    }
+  };
 
   const handleCreateCustomer = async (customerData: CustomerFormData) => {
     try {
@@ -494,7 +696,10 @@ const Customers = () => {
   }
 
   const totalCollected = customers.reduce((s, c) => s + (c.totalPaid ?? 0), 0);
-  const totalOutstanding = customers.reduce((s, c) => s + (c.balance ?? 0), 0);
+  const totalOutstanding = customers.reduce(
+    (s, c) => s + (c.totalOutstanding ?? c.balance ?? 0),
+    0,
+  );
 
   return (
     <div className="mx-auto pb-5 w-full">
@@ -647,7 +852,7 @@ const Customers = () => {
                   .reduce((acc, ch) => acc + ch.charCodeAt(0), 0) %
                 colors.length;
 
-              const pendingDue = customer.balance ?? 0;
+              const pendingDue = customer.totalOutstanding ?? customer.balance ?? 0;
 
               return (
                 <div
@@ -760,11 +965,11 @@ const Customers = () => {
       />
 
       {/* CUSTOMER BILLS MODAL */}
-      {viewingCustomer && (
+      {activeViewingCustomer && (
         <CustomerBillsModal
-          customerId={viewingCustomer.id}
-          customerName={viewingCustomer.name}
-          onClose={() => setViewingCustomer(null)}
+          customerId={activeViewingCustomer.id}
+          customerName={activeViewingCustomer.name}
+          onClose={handleCloseCustomerBillsModal}
         />
       )}
     </div>

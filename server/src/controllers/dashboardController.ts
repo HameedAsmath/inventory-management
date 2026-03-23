@@ -18,16 +18,9 @@ export const getDashboardMetrics = async (
         date: "desc",
       },
     });
-    const purchaseSummary = await prisma.purchaseSummary.findMany({
-      take: 5,
-      orderBy: {
-        date: "desc",
-      },
-    });
     res.json({
       popularProducts,
       salesSummary,
-      purchaseSummary,
     });
   } catch (error) {
     res.status(500).json({ message: "Error retrieving dashboard metrics" });

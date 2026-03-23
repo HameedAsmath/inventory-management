@@ -5,6 +5,10 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  recordCustomerPayment,
+  updateCustomerPayment,
+  deleteCustomerPayment,
+  getCustomerLedger,
   getCustomerStatementPdf,
   emailCustomerStatement,
 } from "../controllers/customerController.js";
@@ -12,6 +16,10 @@ import {
 const router = Router();
 
 router.get("/", getCustomers);
+router.get("/:customerId/ledger", getCustomerLedger);
+router.post("/:customerId/pay", recordCustomerPayment);
+router.patch("/:customerId/payments/:paymentId", updateCustomerPayment);
+router.delete("/:customerId/payments/:paymentId", deleteCustomerPayment);
 router.get("/:customerId/statement/pdf", getCustomerStatementPdf);
 router.post("/:customerId/statement/email", emailCustomerStatement);
 router.get("/:customerId", getCustomerById);

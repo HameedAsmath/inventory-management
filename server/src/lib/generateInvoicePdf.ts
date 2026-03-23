@@ -27,8 +27,8 @@ interface InvoiceData {
   billingId: string;
   totalAmount: number;
   pnfCharges: number;
-  paidAmount: number;
-  paymentStatus: string;
+  openingBalance: number;
+  closingBalance: number;
   timestamp: Date | string;
   customer: InvoiceCustomer;
   BillingItem: InvoiceItem[];
@@ -60,7 +60,7 @@ function t(
   text: string,
   x: number,
   y: number,
-  opts: object = {}
+  opts: object = {},
 ) {
   doc.text(text, x, y, { lineBreak: false, ...opts });
 }
@@ -72,7 +72,7 @@ function tw(
   x: number,
   y: number,
   width: number,
-  align: "left" | "center" | "right" = "left"
+  align: "left" | "center" | "right" = "left",
 ) {
   doc.text(text, x, y, { width, align, lineBreak: false });
 }
@@ -82,12 +82,22 @@ function line(
   y: number,
   x1: number,
   x2: number,
-  color = C.border
+  color = C.border,
 ) {
-  doc.save().strokeColor(color).lineWidth(0.5).moveTo(x1, y).lineTo(x2, y).stroke().restore();
+  doc
+    .save()
+    .strokeColor(color)
+    .lineWidth(0.5)
+    .moveTo(x1, y)
+    .lineTo(x2, y)
+    .stroke()
+    .restore();
 }
 
-export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Promise<Buffer> {
+export function generateInvoicePdf(
+  billing: InvoiceData,
+  shop?: ShopDetails,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const SHOP = getShop(shop);
 
@@ -98,10 +108,18 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
     const rowH = 22;
     const itemsH = billing.BillingItem.length * rowH;
     const totalsH = 50;
-    const paymentH = billing.paidAmount < billing.totalAmount ? 60 : 0;
+    const balanceSnapshotH = 100;
     const footerH = 50;
     const gaps = 60;
-    const contentH = headerH + billToH + tableHeaderH + itemsH + totalsH + paymentH + footerH + gaps;
+    const contentH =
+      headerH +
+      billToH +
+      tableHeaderH +
+      itemsH +
+      totalsH +
+      balanceSnapshotH +
+      footerH +
+      gaps;
 
     // Use A4 but ensure enough height
     const pageH = Math.max(595, contentH + 80); // min A4-ish, grow if needed
@@ -154,7 +172,9 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
     y += 12;
 
     // ===== TABLE =====
-    const hasAnyDiscount = billing.BillingItem.some((item) => item.discount > 0);
+    const hasAnyDiscount = billing.BillingItem.some(
+      (item) => item.discount > 0,
+    );
     const cols = {
       num: m,
       prod: m + 28,
@@ -163,7 +183,7 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
       disc: m + cw * 0.71,
       sub: m + cw * 0.85,
     };
-    const qtyW = cw * 0.10;
+    const qtyW = cw * 0.1;
     const priceW = cw * 0.12;
     const discW = cw * 0.12;
     const subW = cw * 0.15;
@@ -202,12 +222,26 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
 
       doc.font("Helvetica").fillColor(C.med);
       tw(doc, String(item.quantity), cols.qty, y + 5, qtyW, "center");
-      tw(doc, `Rs. ${item.price.toFixed(2)}`, cols.price, y + 5, priceW, "right");
+      tw(
+        doc,
+        `Rs. ${item.price.toFixed(2)}`,
+        cols.price,
+        y + 5,
+        priceW,
+        "right",
+      );
 
       if (hasAnyDiscount) {
         if (item.discount > 0) {
           doc.fillColor("#dc2626");
-          tw(doc, `-Rs. ${item.discount.toFixed(2)}`, cols.disc, y + 5, discW, "right");
+          tw(
+            doc,
+            `-Rs. ${item.discount.toFixed(2)}`,
+            cols.disc,
+            y + 5,
+            discW,
+            "right",
+          );
           doc.fillColor(C.med);
         } else {
           tw(doc, "—", cols.disc, y + 5, discW, "right");
@@ -215,7 +249,14 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
       }
 
       doc.font("Helvetica-Bold").fillColor(C.dark);
-      tw(doc, `Rs. ${item.subtotal.toFixed(2)}`, cols.sub, y + 5, subW, "right");
+      tw(
+        doc,
+        `Rs. ${item.subtotal.toFixed(2)}`,
+        cols.sub,
+        y + 5,
+        subW,
+        "right",
+      );
 
       y += rowH;
       line(doc, y - 1, m, pw - m);
@@ -226,19 +267,39 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
     const tX = m + cw * 0.55;
     const tW = cw * 0.45;
 
-    const totalDiscount = billing.BillingItem.reduce((s, item) => s + (item.discount || 0), 0);
-    const grossTotal = billing.BillingItem.reduce((s, item) => s + item.quantity * item.price, 0);
+    const totalDiscount = billing.BillingItem.reduce(
+      (s, item) => s + (item.discount || 0),
+      0,
+    );
+    const grossTotal = billing.BillingItem.reduce(
+      (s, item) => s + item.quantity * item.price,
+      0,
+    );
 
     if (totalDiscount > 0) {
       doc.font("Helvetica").fontSize(9).fillColor(C.med);
       tw(doc, "Gross Total", tX, y, tW * 0.5, "right");
       doc.fillColor(C.dark);
-      tw(doc, `Rs. ${grossTotal.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
+      tw(
+        doc,
+        `Rs. ${grossTotal.toFixed(2)}`,
+        tX + tW * 0.55,
+        y,
+        tW * 0.45,
+        "right",
+      );
       y += 14;
 
       doc.font("Helvetica").fontSize(9).fillColor("#dc2626");
       tw(doc, "Total Discount", tX, y, tW * 0.5, "right");
-      tw(doc, `-Rs. ${totalDiscount.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
+      tw(
+        doc,
+        `-Rs. ${totalDiscount.toFixed(2)}`,
+        tX + tW * 0.55,
+        y,
+        tW * 0.45,
+        "right",
+      );
       y += 14;
     }
 
@@ -248,7 +309,14 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
     doc.font("Helvetica").fontSize(9).fillColor(C.med);
     tw(doc, pnf > 0 ? "Net Items" : "Net Total", tX, y, tW * 0.5, "right");
     doc.fillColor(C.dark);
-    tw(doc, `Rs. ${netBeforePnf.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
+    tw(
+      doc,
+      `Rs. ${netBeforePnf.toFixed(2)}`,
+      tX + tW * 0.55,
+      y,
+      tW * 0.45,
+      "right",
+    );
     y += 14;
 
     if (pnf > 0) {
@@ -271,44 +339,46 @@ export function generateInvoicePdf(billing: InvoiceData, shop?: ShopDetails): Pr
     doc.fontSize(13);
     tw(doc, `Rs. ${billing.totalAmount.toFixed(2)}`, tX, y + 2, tW, "right");
 
-    // ===== PAYMENT SUMMARY =====
-    const balanceDue = Math.max(0, billing.totalAmount - (billing.paidAmount || 0));
-    const paid = billing.paidAmount || 0;
+    // ===== BALANCE SNAPSHOT =====
+    y += 36;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(C.dark);
+    t(doc, "BALANCE SNAPSHOT", m, y - 2);
+    y += 14;
 
-    if (paid > 0 || billing.paymentStatus === "pending") {
-      y += 32;
-      line(doc, y, tX - 5, pw - m, C.border);
-      y += 10;
+    doc.save();
+    doc.roundedRect(m, y - 2, cw, 88, 6).fill(C.bgLight);
+    doc.restore();
 
-      doc.font("Helvetica").fontSize(9).fillColor(C.med);
-      tw(doc, "Amount Paid", tX, y, tW * 0.5, "right");
-      doc.font("Helvetica-Bold").fillColor("#059669");
-      tw(doc, `Rs. ${paid.toFixed(2)}`, tX + tW * 0.55, y, tW * 0.45, "right");
-      y += 16;
+    const leftX = m + 14;
+    const rightW = cw - 20;
+    const openingBalance = Math.max(0, Number(billing.openingBalance || 0));
+    const currentBalance = Math.max(0, Number(billing.closingBalance || 0));
 
-      if (balanceDue > 0) {
-        doc.save();
-        doc.roundedRect(tX - 5, y - 4, tW + 10, 24, 4).fill("#fef3c7");
-        doc.restore();
+    doc.font("Helvetica").fontSize(9).fillColor(C.med);
+    t(doc, "Opening Balance", leftX, y + 12);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(C.dark);
+    tw(doc, `Rs. ${openingBalance.toFixed(2)}`, m, y + 10, rightW, "right");
 
-        doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#92400e");
-        t(doc, "BALANCE DUE", tX + 6, y + 3);
-        doc.fontSize(12);
-        tw(doc, `Rs. ${balanceDue.toFixed(2)}`, tX, y + 1, tW, "right");
-        y += 24;
-      } else {
-        doc.save();
-        doc.roundedRect(tX - 5, y - 4, tW + 10, 24, 4).fill("#d1fae5");
-        doc.restore();
+    doc.font("Helvetica").fontSize(9).fillColor(C.med);
+    t(doc, "Bill Amount", leftX, y + 36);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(C.dark);
+    tw(
+      doc,
+      `Rs. ${billing.totalAmount.toFixed(2)}`,
+      m,
+      y + 34,
+      rightW,
+      "right",
+    );
 
-        doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#065f46");
-        tw(doc, "PAID IN FULL", tX - 5, y + 3, tW + 10, "center");
-        y += 24;
-      }
-    }
+    line(doc, y + 56, leftX, m + cw - 14, C.border);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#92400e");
+    t(doc, "Current Balance", leftX, y + 64);
+    doc.fontSize(13);
+    tw(doc, `Rs. ${currentBalance.toFixed(2)}`, m, y + 62, rightW, "right");
 
     // ===== FOOTER =====
-    y += 40;
+    y += 104;
     line(doc, y, m, pw - m);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(C.med);

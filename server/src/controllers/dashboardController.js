@@ -22,16 +22,9 @@ export const getDashboardMetrics = (req, res) => __awaiter(void 0, void 0, void 
                 date: "desc",
             },
         });
-        const purchaseSummary = yield prisma.purchaseSummary.findMany({
-            take: 5,
-            orderBy: {
-                date: "desc",
-            },
-        });
         res.json({
             popularProducts,
             salesSummary,
-            purchaseSummary,
         });
     }
     catch (error) {

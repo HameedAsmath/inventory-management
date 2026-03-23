@@ -18,8 +18,6 @@ import {
   Clock,
   Trash2,
   Edit2,
-  X,
-  Loader2,
 } from "lucide-react";
 import { useState } from "react";
 import Header from "@/app/(components)/Header";
@@ -137,9 +135,6 @@ const Expenses = () => {
   const pendingAmount = expenses
     .filter((e) => e.status === "pending")
     .reduce((sum, e) => sum + e.amount, 0);
-  const completedAmount = expenses
-    .filter((e) => e.status === "success")
-    .reduce((sum, e) => sum + e.amount, 0);
 
   return (
     <div className="mx-auto pb-5 w-full">
@@ -148,7 +143,7 @@ const Expenses = () => {
         <div>
           <Header name="Expenses" />
           <p className="text-sm text-gray-500 mt-1">
-            Track and manage all expenses and purchases
+            Track and manage all business expenses
           </p>
         </div>
         <button
@@ -252,7 +247,7 @@ const Expenses = () => {
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/80 transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  <div className="shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-sm">
+                  <div className="shrink-0 w-10 h-10 rounded-lg bg-linear-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-sm">
                     <FileText className="w-4 h-4 text-white" />
                   </div>
                   <div className="text-left">

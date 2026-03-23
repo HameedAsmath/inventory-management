@@ -3,11 +3,8 @@
 import {
   useGetBillingsQuery,
   useCreateBillingMutation,
-  useUpdateBillingMutation,
-  useUpdateBillingPaymentStatusMutation,
   useSendBillingEmailMutation,
   type CreateBillingRequest,
-  type PaymentStatus,
 } from "../state/api";
 import {
   Plus,
@@ -15,35 +12,31 @@ import {
   ChevronDown,
   ChevronUp,
   Receipt,
-  DollarSign,
   Clock,
   Package,
   FileDown,
   Mail,
   Loader2,
-  Edit2,
   Filter,
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/app/(components)/Header";
 import CreateBillingModal from "./CreateBillingModal";
 import { toast } from "sonner";
 
 const Billing = () => {
+  const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingBillingId, setEditingBillingId] = useState<string | null>(null);
   const [expandedBill, setExpandedBill] = useState<string | null>(null);
   const [emailingBillId, setEmailingBillId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">(
-    "all",
-  );
+  const [selectedCustomerName, setSelectedCustomerName] = useState<string>("");
+  const [billingIdFilter, setBillingIdFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
   const { data: billings, isLoading, isError } = useGetBillingsQuery();
   const [createBilling] = useCreateBillingMutation();
-  const [updateBilling] = useUpdateBillingMutation();
-  const [updatePaymentStatus] = useUpdateBillingPaymentStatusMutation();
   const [sendBillingEmail] = useSendBillingEmailMutation();
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -53,23 +46,6 @@ const Billing = () => {
       await createBilling(billingData).unwrap();
       toast.success("Bill created successfully");
       setIsModalOpen(false);
-    } catch {
-      // error toast handled globally
-    }
-  };
-
-  const handleUpdateBilling = async (
-    billingId: string,
-    billingData: Omit<CreateBillingRequest, "billingId">,
-  ) => {
-    try {
-      await updateBilling({
-        billingId,
-        data: billingData,
-      }).unwrap();
-      toast.success("Bill updated successfully");
-      setIsModalOpen(false);
-      setEditingBillingId(null);
     } catch {
       // error toast handled globally
     }
@@ -99,6 +75,17 @@ const Billing = () => {
     setExpandedBill(expandedBill === billingId ? null : billingId);
   };
 
+  const handleOpenCustomerFromBilling = (customer: {
+    customerId: string;
+    name: string;
+  }) => {
+    const qs = new URLSearchParams({
+      openCustomerId: customer.customerId,
+      openCustomerName: customer.name,
+    });
+    router.push(`/customers?${qs.toString()}`);
+  };
+
   const formatDate = (timestamp: string) => {
     return new Date(timestamp).toLocaleDateString("en-US", {
       year: "numeric",
@@ -109,50 +96,35 @@ const Billing = () => {
     });
   };
 
-  const handleUpdatePaymentStatus = async (
-    billingId: string,
-    status: PaymentStatus,
-  ) => {
-    try {
-      await updatePaymentStatus({ billingId, paymentStatus: status }).unwrap();
-    } catch {
-      // error toast handled globally
-    }
-  };
-
-  const getStatusColor = (status: PaymentStatus) => {
-    switch (status) {
-      case "success":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "cancelled":
-        return "bg-red-50 text-red-700 border-red-200";
-      case "pending":
-      default:
-        return "bg-amber-50 text-amber-700 border-amber-200";
-    }
-  };
-
-  const getStatusLabel = (status: PaymentStatus) => {
-    switch (status) {
-      case "success":
-        return "Paid";
-      case "cancelled":
-        return "Cancelled";
-      case "pending":
-      default:
-        return "Pending";
-    }
-  };
-
   const hasActiveFilters =
-    statusFilter !== "all" || dateFrom !== "" || dateTo !== "";
+    selectedCustomerName !== "" ||
+    billingIdFilter.trim() !== "" ||
+    dateFrom !== "" ||
+    dateTo !== "";
+
+  const customerOptions = useMemo(() => {
+    if (!billings) return [];
+    const names = new Set<string>();
+    for (const bill of billings) {
+      names.add(bill.customer.name);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [billings]);
 
   const filteredBillings = useMemo(() => {
     if (!billings) return [];
+    const normalizedBillingId = billingIdFilter.trim().toLowerCase();
 
     return billings.filter((b) => {
-      if (statusFilter !== "all" && b.paymentStatus !== statusFilter)
+      if (selectedCustomerName && b.customer.name !== selectedCustomerName) {
         return false;
+      }
+      if (
+        normalizedBillingId &&
+        !b.billingId.toLowerCase().includes(normalizedBillingId)
+      ) {
+        return false;
+      }
       if (dateFrom && new Date(b.timestamp) < new Date(dateFrom)) return false;
       if (dateTo) {
         const toEnd = new Date(dateTo);
@@ -161,7 +133,7 @@ const Billing = () => {
       }
       return true;
     });
-  }, [billings, statusFilter, dateFrom, dateTo]);
+  }, [billings, selectedCustomerName, billingIdFilter, dateFrom, dateTo]);
 
   if (isLoading) {
     return (
@@ -189,15 +161,8 @@ const Billing = () => {
     (sum, b) => sum + b.totalAmount,
     0,
   );
-  const totalCollected = filteredBillings.reduce(
-    (sum, b) => sum + b.paidAmount,
-    0,
-  );
-  const totalOutstanding = totalRevenue - totalCollected;
-  const totalItems = filteredBillings.reduce(
-    (sum, b) => sum + b.BillingItem.length,
-    0,
-  );
+  const averageBillValue =
+    filteredBillings.length > 0 ? totalRevenue / filteredBillings.length : 0;
 
   return (
     <div className="mx-auto pb-5 w-full">
@@ -227,18 +192,33 @@ const Billing = () => {
               Filter
             </span>
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as PaymentStatus | "all")
-            }
-            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="success">Paid</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">Customer</label>
+            <select
+              value={selectedCustomerName}
+              onChange={(e) => setSelectedCustomerName(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-48"
+            >
+              <option value="">All Customers</option>
+              {customerOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">
+              Billing ID
+            </label>
+            <input
+              type="text"
+              value={billingIdFilter}
+              onChange={(e) => setBillingIdFilter(e.target.value)}
+              placeholder="Search billing id"
+              className="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-40"
+            />
+          </div>
           <div className="flex items-center gap-1.5">
             <label className="text-xs text-gray-500 font-medium">From</label>
             <input
@@ -260,7 +240,8 @@ const Billing = () => {
           {hasActiveFilters && (
             <button
               onClick={() => {
-                setStatusFilter("all");
+                setSelectedCustomerName("");
+                setBillingIdFilter("");
                 setDateFrom("");
                 setDateTo("");
               }}
@@ -294,14 +275,14 @@ const Billing = () => {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
           <div className="shrink-0 rounded-lg bg-emerald-50 p-3">
-            <DollarSign className="w-5 h-5 text-emerald-600" />
+            <Receipt className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
             <p className="text-2xl font-bold text-gray-900">
-              ₹{totalCollected.toFixed(2)}
+              ₹{totalRevenue.toFixed(2)}
             </p>
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-              Collected
+              Total Amount
             </p>
           </div>
         </div>
@@ -311,10 +292,10 @@ const Billing = () => {
           </div>
           <div>
             <p className="text-2xl font-bold text-gray-900">
-              ₹{totalOutstanding.toFixed(2)}
+              {filteredBillings.length}
             </p>
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-              Outstanding
+              In Range
             </p>
           </div>
         </div>
@@ -323,9 +304,11 @@ const Billing = () => {
             <Package className="w-5 h-5 text-purple-600" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              ₹{averageBillValue.toFixed(2)}
+            </p>
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-              Items Sold
+              Avg Bill Value
             </p>
           </div>
         </div>
@@ -380,18 +363,11 @@ const Billing = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-semibold text-gray-900 truncate">
-                      {billing.billingId}
+                      {billing.customer.name}
                     </h3>
-                    <span
-                      className={`shrink-0 inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${getStatusColor(
-                        billing.paymentStatus,
-                      )}`}
-                    >
-                      {getStatusLabel(billing.paymentStatus)}
-                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 text-xs text-gray-400">
-                    <span className="truncate">{billing.customer.name}</span>
+                    <span className="truncate">{billing.billingId}</span>
                     <span>·</span>
                     <span className="shrink-0 flex items-center gap-0.5">
                       <Clock className="w-3 h-3" />
@@ -410,18 +386,6 @@ const Billing = () => {
                   <p className="text-sm font-bold text-gray-900">
                     ₹{billing.totalAmount.toFixed(2)}
                   </p>
-                  {billing.paymentStatus === "pending" &&
-                    billing.totalAmount - billing.paidAmount > 0 && (
-                      <p className="text-[11px] text-amber-600 font-medium mt-0.5">
-                        Bal ₹
-                        {(billing.totalAmount - billing.paidAmount).toFixed(2)}
-                      </p>
-                    )}
-                  {billing.paymentStatus === "success" && (
-                    <p className="text-[11px] text-emerald-600 font-medium mt-0.5">
-                      Fully paid
-                    </p>
-                  )}
                 </div>
 
                 {/* ACTIONS */}
@@ -429,17 +393,6 @@ const Billing = () => {
                   className="flex items-center gap-0.5"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingBillingId(billing.billingId);
-                      setIsModalOpen(true);
-                    }}
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                    title="Edit"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
                   <button
                     type="button"
                     onClick={() => handleOpenPdf(billing.billingId)}
@@ -483,7 +436,16 @@ const Billing = () => {
                       <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
                         Customer Details
                       </h4>
-                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenCustomerFromBilling({
+                            customerId: billing.customer.customerId,
+                            name: billing.customer.name,
+                          })
+                        }
+                        className="w-full text-left bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
+                      >
                         <p className="text-sm font-semibold text-gray-900">
                           {billing.customer.name}
                         </p>
@@ -500,7 +462,7 @@ const Billing = () => {
                             {billing.customer.address}
                           </p>
                         )}
-                      </div>
+                      </button>
                     </div>
 
                     {/* Items Table */}
@@ -604,101 +566,10 @@ const Billing = () => {
                                 ₹{billing.totalAmount.toFixed(2)}
                               </td>
                             </tr>
-                            {billing.paymentStatus !== "cancelled" && (
-                              <>
-                                <tr className="bg-emerald-50/60">
-                                  <td
-                                    colSpan={4}
-                                    className="py-2 px-4 text-right text-sm text-emerald-700 font-medium"
-                                  >
-                                    Amount Paid
-                                  </td>
-                                  <td className="py-2 px-4 text-right text-sm font-bold text-emerald-700">
-                                    ₹{billing.paidAmount.toFixed(2)}
-                                  </td>
-                                </tr>
-                                {billing.totalAmount - billing.paidAmount >
-                                  0 && (
-                                  <tr className="bg-amber-50/60">
-                                    <td
-                                      colSpan={4}
-                                      className="py-2.5 px-4 text-right text-sm text-amber-700 font-semibold"
-                                    >
-                                      Balance Due
-                                    </td>
-                                    <td className="py-2.5 px-4 text-right text-base font-bold text-amber-700">
-                                      ₹
-                                      {(
-                                        billing.totalAmount - billing.paidAmount
-                                      ).toFixed(2)}
-                                    </td>
-                                  </tr>
-                                )}
-                              </>
-                            )}
                           </tfoot>
                         </table>
                       </div>
                     </div>
-                  </div>
-
-                  {/* STATUS & PAYMENT */}
-                  <div className="mt-5 bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                        Status
-                      </p>
-                      <select
-                        value={billing.paymentStatus}
-                        onChange={(e) =>
-                          handleUpdatePaymentStatus(
-                            billing.billingId,
-                            e.target.value as PaymentStatus,
-                          )
-                        }
-                        className={`text-sm font-medium rounded-lg px-3 py-1.5 border ${getStatusColor(
-                          billing.paymentStatus,
-                        )} cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500`}
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="success">Paid</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </div>
-
-                    {billing.paymentStatus !== "cancelled" && (
-                      <div className="border-t border-gray-100 pt-4 flex items-center gap-6 flex-wrap">
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                            Total
-                          </p>
-                          <p className="text-lg font-bold text-gray-900">
-                            ₹{billing.totalAmount.toFixed(2)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                            Paid
-                          </p>
-                          <p className="text-lg font-bold text-emerald-600">
-                            ₹{billing.paidAmount.toFixed(2)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                            Balance
-                          </p>
-                          <p
-                            className={`text-lg font-bold ${billing.totalAmount - billing.paidAmount > 0 ? "text-amber-600" : "text-emerald-600"}`}
-                          >
-                            ₹
-                            {(billing.totalAmount - billing.paidAmount).toFixed(
-                              2,
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* ACTION BUTTONS */}
@@ -744,12 +615,8 @@ const Billing = () => {
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
-          setEditingBillingId(null);
         }}
         onCreate={handleCreateBilling}
-        onUpdate={handleUpdateBilling}
-        editingBillingId={editingBillingId}
-        billings={billings || []}
       />
     </div>
   );

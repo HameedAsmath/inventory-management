@@ -10,7 +10,9 @@ import {
   Layout,
   LucideIcon,
   Menu,
+  ShoppingCart,
   SlidersHorizontal,
+  Store,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -45,7 +47,7 @@ const SidebarLink = ({
         }
       `}
       >
-        <Icon className="w-6 h-6 !text-gray-700" />
+        <Icon className="w-6 h-6 text-gray-700!" />
 
         <span
           className={`${
@@ -121,9 +123,21 @@ const Sidebar = () => {
           isCollapsed={isSidebarCollapsed}
         />
         <SidebarLink
+          href="/suppliers"
+          icon={Store}
+          label="Suppliers"
+          isCollapsed={isSidebarCollapsed}
+        />
+        <SidebarLink
           href="/billing"
           icon={FileText}
           label="Billing"
+          isCollapsed={isSidebarCollapsed}
+        />
+        <SidebarLink
+          href="/purchases"
+          icon={ShoppingCart}
+          label="Purchases"
           isCollapsed={isSidebarCollapsed}
         />
         <SidebarLink

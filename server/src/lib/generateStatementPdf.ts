@@ -4,8 +4,13 @@ import { ShopDetails } from "./generateInvoicePdf.js";
 interface StatementBill {
   billingId: string;
   totalAmount: number;
-  paidAmount: number;
-  paymentStatus: string;
+  timestamp: Date | string;
+}
+
+interface StatementPayment {
+  paymentId: string;
+  amount: number;
+  type: "payment" | "advance";
   timestamp: Date | string;
 }
 
@@ -16,9 +21,14 @@ interface StatementData {
     address?: string | null;
   };
   bills: StatementBill[];
+  payments: StatementPayment[];
   totalAmount: number;
   totalPaid: number;
   outstanding: number;
+  credit: number;
+  openingBalance: number;
+  billAmount: number;
+  currentBalance: number;
 }
 
 function getShop(shop?: ShopDetails): ShopDetails {
@@ -79,12 +89,6 @@ function line(
     .restore();
 }
 
-const statusLabel = (s: string) =>
-  s === "success" ? "Paid" : s === "cancelled" ? "Cancelled" : "Pending";
-
-const statusColor = (s: string) =>
-  s === "success" ? "#059669" : s === "cancelled" ? "#dc2626" : "#d97706";
-
 export function generateStatementPdf(
   data: StatementData,
   shop?: ShopDetails,
@@ -94,13 +98,22 @@ export function generateStatementPdf(
     const rowH = 22;
     const headerH = 70;
     const customerH = 50;
-    const tableHeaderH = 22;
+    const sectionHeaderH = 24;
     const itemsH = data.bills.length * rowH;
-    const totalsH = 80;
+    const balanceSectionH = 120;
+    const totalsH = 50;
     const footerH = 50;
-    const gaps = 80;
+    const gaps = 100;
     const contentH =
-      headerH + customerH + tableHeaderH + itemsH + totalsH + footerH + gaps;
+      headerH +
+      customerH +
+      sectionHeaderH +
+      itemsH +
+      sectionHeaderH +
+      balanceSectionH +
+      totalsH +
+      footerH +
+      gaps;
 
     const pageH = Math.max(595, contentH + 80);
     const doc = new PDFDocument({
@@ -165,21 +178,19 @@ export function generateStatementPdf(
     line(doc, y, m, pw - m);
     y += 12;
 
-    // ===== TABLE =====
+    // ===== BILLS TABLE =====
     const cols = {
       num: m,
       billId: m + 25,
-      date: m + cw * 0.35,
-      status: m + cw * 0.5,
-      total: m + cw * 0.62,
-      paid: m + cw * 0.77,
-      due: m + cw * 0.88,
+      date: m + cw * 0.48,
+      total: m + cw * 0.70,
     };
-    const dateW = cw * 0.13;
-    const statusW = cw * 0.1;
-    const numW = cw * 0.12;
-    const dueW = cw * 0.12;
+    const dateW = cw * 0.16;
+    const numW = cw * 0.18;
 
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(C.dark);
+    t(doc, "BILLS", m, y - 2);
+    y += 14;
     doc.save();
     doc.rect(m, y - 4, cw, 20).fill(C.bgLight);
     doc.restore();
@@ -188,10 +199,7 @@ export function generateStatementPdf(
     t(doc, "#", cols.num + 4, y + 3);
     t(doc, "BILL ID", cols.billId, y + 3);
     tw(doc, "DATE", cols.date, y + 3, dateW, "center");
-    tw(doc, "STATUS", cols.status, y + 3, statusW, "center");
     tw(doc, "TOTAL", cols.total, y + 3, numW, "right");
-    tw(doc, "PAID", cols.paid, y + 3, numW, "right");
-    tw(doc, "DUE", cols.due, y + 3, dueW, "right");
     y += 20;
 
     // Table rows
@@ -224,20 +232,6 @@ export function generateStatementPdf(
         "center",
       );
 
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(7.5)
-        .fillColor(statusColor(bill.paymentStatus));
-      tw(
-        doc,
-        statusLabel(bill.paymentStatus).toUpperCase(),
-        cols.status,
-        y + 5,
-        statusW,
-        "center",
-      );
-      doc.fontSize(8.5);
-
       doc.font("Helvetica").fillColor(C.med);
       tw(
         doc,
@@ -248,26 +242,42 @@ export function generateStatementPdf(
         "right",
       );
 
-      doc.fillColor("#059669");
-      tw(
-        doc,
-        `Rs. ${bill.paidAmount.toFixed(2)}`,
-        cols.paid,
-        y + 5,
-        numW,
-        "right",
-      );
-
-      const due = bill.totalAmount - bill.paidAmount;
-      doc.fillColor(due > 0 ? "#d97706" : C.med);
-      tw(doc, `Rs. ${due.toFixed(2)}`, cols.due, y + 5, dueW, "right");
-
       y += rowH;
       line(doc, y - 1, m, pw - m);
     });
 
+    // ===== PAYMENTS / LEDGER SUMMARY =====
+    y += 16;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(C.dark);
+    t(doc, "PAYMENTS", m, y - 2);
+    y += 14;
+
+    doc.save();
+    doc.roundedRect(m, y - 2, cw, 88, 6).fill(C.bgLight);
+    doc.restore();
+
+    const leftX = m + 14;
+    const rightX = m + cw - 14;
+    doc.font("Helvetica").fontSize(9).fillColor(C.med);
+    t(doc, "Opening Balance", leftX, y + 12);
+    doc.font("Helvetica-Bold").fillColor(C.dark);
+    doc.fontSize(11);
+    tw(doc, `Rs. ${data.openingBalance.toFixed(2)}`, m, y + 10, cw - 20, "right");
+
+    doc.font("Helvetica").fontSize(9).fillColor(C.med);
+    t(doc, "Bill Amount", leftX, y + 36);
+    doc.font("Helvetica-Bold").fillColor(C.dark).fontSize(11);
+    tw(doc, `Rs. ${data.billAmount.toFixed(2)}`, m, y + 34, cw - 20, "right");
+
+    line(doc, y + 56, leftX, rightX, C.border);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#92400e");
+    t(doc, "Current Balance", leftX, y + 64);
+    doc.fontSize(13);
+    tw(doc, `Rs. ${data.currentBalance.toFixed(2)}`, m, y + 62, cw - 20, "right");
+    y += 98;
+
     // ===== TOTALS =====
-    y += 12;
+    y += 4;
     const tX = m + cw * 0.5;
     const tW = cw * 0.5;
 
@@ -310,6 +320,15 @@ export function generateStatementPdf(
     t(doc, data.outstanding > 0 ? "OUTSTANDING" : "ALL CLEAR", tX + 6, y + 4);
     doc.fontSize(13);
     tw(doc, `Rs. ${data.outstanding.toFixed(2)}`, tX, y + 2, tW, "right");
+
+    y += 32;
+    doc.save();
+    doc.roundedRect(tX - 5, y - 4, tW + 10, 26, 4).fill("#dbeafe");
+    doc.restore();
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e40af");
+    t(doc, "CREDIT", tX + 6, y + 4);
+    doc.fontSize(13);
+    tw(doc, `Rs. ${data.credit.toFixed(2)}`, tX, y + 2, tW, "right");
 
     // ===== FOOTER =====
     y += 40;
