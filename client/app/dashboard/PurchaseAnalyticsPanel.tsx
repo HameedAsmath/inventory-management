@@ -10,7 +10,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Loader2, Package, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
+import {
+  Loader2,
+  Package,
+  ShoppingCart,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 
 const PurchaseAnalyticsPanel = () => {
   const { data, isLoading, isError } = useGetPurchaseAnalyticsQuery();
@@ -34,7 +40,9 @@ const PurchaseAnalyticsPanel = () => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-semibold text-gray-900">Purchase Analytics</h3>
+        <h3 className="text-lg font-semibold text-gray-900">
+          Purchase Analytics
+        </h3>
         <p className="text-sm text-gray-500 mt-1">
           Stock, cost and monthly purchasing insights
         </p>
@@ -79,10 +87,14 @@ const PurchaseAnalyticsPanel = () => {
         <div className="border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="w-4 h-4 text-blue-600" />
-            <h4 className="text-sm font-semibold text-gray-900">Monthly Purchase Trend</h4>
+            <h4 className="text-sm font-semibold text-gray-900">
+              Monthly Purchase Trend
+            </h4>
           </div>
           {data.monthlyPurchaseTrend.length === 0 ? (
-            <p className="text-sm text-gray-500">No purchase trend data available yet</p>
+            <p className="text-sm text-gray-500">
+              No purchase trend data available yet
+            </p>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={data.monthlyPurchaseTrend}>
@@ -94,7 +106,10 @@ const PurchaseAnalyticsPanel = () => {
                   tickFormatter={(value) => `₹${value}`}
                 />
                 <Tooltip
-                  formatter={(value: number) => [`₹${value.toFixed(2)}`, "Total Cost"]}
+                  formatter={(value?: number) => [
+                    `₹${value?.toFixed(2)}`,
+                    "Total Cost",
+                  ]}
                 />
                 <Bar dataKey="totalCost" fill="#3b82f6" radius={[6, 6, 0, 0]} />
               </BarChart>
@@ -105,10 +120,14 @@ const PurchaseAnalyticsPanel = () => {
         <div className="border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3">
             <ShoppingCart className="w-4 h-4 text-indigo-600" />
-            <h4 className="text-sm font-semibold text-gray-900">Top Purchased Products</h4>
+            <h4 className="text-sm font-semibold text-gray-900">
+              Top Purchased Products
+            </h4>
           </div>
           {data.topPurchasedProducts.length === 0 ? (
-            <p className="text-sm text-gray-500">No purchased product data yet</p>
+            <p className="text-sm text-gray-500">
+              No purchased product data yet
+            </p>
           ) : (
             <div className="space-y-2">
               {data.topPurchasedProducts.map((item, idx) => (
@@ -120,7 +139,9 @@ const PurchaseAnalyticsPanel = () => {
                     <p className="text-sm text-gray-800 font-medium truncate">
                       #{idx + 1} {item.productName}
                     </p>
-                    <p className="text-xs text-gray-500">Qty {item.totalQuantity}</p>
+                    <p className="text-xs text-gray-500">
+                      Qty {item.totalQuantity}
+                    </p>
                   </div>
                   <p className="text-sm font-semibold text-gray-900">
                     ₹{item.totalCost.toFixed(2)}
@@ -135,16 +156,22 @@ const PurchaseAnalyticsPanel = () => {
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center gap-2">
           <Package className="w-4 h-4 text-gray-500" />
-          Low stock: <span className="font-semibold">{data.stockLevels.lowStockCount}</span>
+          Low stock:{" "}
+          <span className="font-semibold">
+            {data.stockLevels.lowStockCount}
+          </span>
         </div>
         <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center gap-2">
           <Wallet className="w-4 h-4 text-gray-500" />
           Out of stock:{" "}
-          <span className="font-semibold">{data.stockLevels.outOfStockCount}</span>
+          <span className="font-semibold">
+            {data.stockLevels.outOfStockCount}
+          </span>
         </div>
         <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center gap-2">
           <ShoppingCart className="w-4 h-4 text-gray-500" />
-          Purchase entries: <span className="font-semibold">{data.purchaseCount}</span>
+          Purchase entries:{" "}
+          <span className="font-semibold">{data.purchaseCount}</span>
         </div>
       </div>
     </div>

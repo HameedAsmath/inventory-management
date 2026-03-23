@@ -39,7 +39,7 @@ const SalesTrends = () => {
     if (salesData.length === 0) return 0;
     const sum = salesData.reduce(
       (acc, item) => acc + (item.changePercentage || 0),
-      0
+      0,
     );
     return sum / salesData.length;
   }, [salesData]);
@@ -60,7 +60,8 @@ const SalesTrends = () => {
     );
   }
 
-  const hasNoData = !salesData || salesData.length === 0 || chartData.length === 0;
+  const hasNoData =
+    !salesData || salesData.length === 0 || chartData.length === 0;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -71,11 +72,11 @@ const SalesTrends = () => {
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-gray-900">
-            {totalSales >= 1000000 
+            {totalSales >= 1000000
               ? `₹${(totalSales / 1000000).toFixed(2)}M`
               : totalSales >= 1000
-              ? `₹${(totalSales / 1000).toFixed(2)}k`
-              : `₹${totalSales.toFixed(2)}`}
+                ? `₹${(totalSales / 1000).toFixed(2)}k`
+                : `₹${totalSales.toFixed(2)}`}
           </p>
           {!hasNoData && (
             <div className="flex items-center gap-1 justify-end mt-1">
@@ -103,7 +104,7 @@ const SalesTrends = () => {
               stroke="#9ca3af"
               fontSize={12}
               tickLine={false}
-              domain={['auto', 'auto']}
+              domain={["auto", "auto"]}
               tickFormatter={(value) => {
                 if (value >= 1000000) {
                   return `₹${(value / 1000000).toFixed(1)}M`;
@@ -121,7 +122,7 @@ const SalesTrends = () => {
                 borderRadius: "8px",
                 padding: "8px 12px",
               }}
-              formatter={(value: number) => [`₹${value.toFixed(2)}`, "Sales"]}
+              formatter={(value?: number) => [`₹${value?.toFixed(2)}`, "Sales"]}
             />
             <Bar
               dataKey="value"
@@ -135,7 +136,9 @@ const SalesTrends = () => {
         <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
           <TrendingUp className="w-12 h-12 mb-2 opacity-50" />
           <p className="text-sm font-medium">No sales data available</p>
-          <p className="text-xs mt-1">Sales data will appear here once available</p>
+          <p className="text-xs mt-1">
+            Sales data will appear here once available
+          </p>
         </div>
       )}
     </div>

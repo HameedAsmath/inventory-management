@@ -26,13 +26,13 @@ const RevenueChart = () => {
         month: "short",
         day: "numeric",
       });
-      
+
       if (!acc[date]) {
         acc[date] = { revenue: 0, dateObj };
       }
-      
+
       acc[date].revenue += billing.totalAmount;
-      
+
       return acc;
     }, {});
 
@@ -74,7 +74,8 @@ const RevenueChart = () => {
     );
   }
 
-  const hasNoData = !billings || billings.length === 0 || chartData.length === 0;
+  const hasNoData =
+    !billings || billings.length === 0 || chartData.length === 0;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -105,7 +106,7 @@ const RevenueChart = () => {
               stroke="#9ca3af"
               fontSize={12}
               tickLine={false}
-              domain={['auto', 'auto']}
+              domain={["auto", "auto"]}
               tickFormatter={(value) => {
                 if (value >= 1000000) {
                   return `₹${(value / 1000000).toFixed(1)}M`;
@@ -123,7 +124,10 @@ const RevenueChart = () => {
                 borderRadius: "8px",
                 padding: "8px 12px",
               }}
-              formatter={(value: number) => [`₹${value.toFixed(2)}`, "Revenue"]}
+              formatter={(value?: number) => [
+                `₹${value?.toFixed(2)}`,
+                "Revenue",
+              ]}
             />
             <Line
               type="monotone"
@@ -139,7 +143,9 @@ const RevenueChart = () => {
         <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
           <TrendingUp className="w-12 h-12 mb-2 opacity-50" />
           <p className="text-sm font-medium">No revenue data available</p>
-          <p className="text-xs mt-1">Start creating bills to see revenue trends</p>
+          <p className="text-xs mt-1">
+            Start creating bills to see revenue trends
+          </p>
         </div>
       )}
 
