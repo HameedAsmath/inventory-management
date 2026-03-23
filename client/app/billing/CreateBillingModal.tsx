@@ -37,7 +37,7 @@ function parseDiscount(input: string, gross: number): number {
     const pct = parseFloat(trimmed.slice(0, -1));
     if (isNaN(pct) || pct < 0) return 0;
     const clamped = Math.min(pct, 100);
-    return Math.round((gross * clamped) / 100 * 100) / 100;
+    return Math.round(((gross * clamped) / 100) * 100) / 100;
   }
   const amt = parseFloat(trimmed);
   if (isNaN(amt) || amt < 0) return 0;
@@ -80,13 +80,7 @@ const CreateBillingModal = ({
   const [error, setError] = useState("");
 
   const { data: customers } = useGetCustomersQuery(customerSearch);
-  const { data: products } = useGetProductsQuery(productSearch);
-
-  useEffect(() => {
-    if (isOpen) {
-      resetForm();
-    }
-  }, [isOpen]);
+  const { data: products } = useGetProductsQuery({ search: productSearch });
 
   const itemsTotal = items.reduce((sum, item) => {
     const gross = item.price * item.quantity;
@@ -94,7 +88,7 @@ const CreateBillingModal = ({
     return sum + Math.max(0, gross - disc);
   }, 0);
 
-  const pnfValue = pnfEnabled ? (parseFloat(pnfAmount) || 0) : 0;
+  const pnfValue = pnfEnabled ? parseFloat(pnfAmount) || 0 : 0;
   const totalAmount = itemsTotal + pnfValue;
 
   const handleSelectCustomer = (id: string) => {
@@ -174,9 +168,7 @@ const CreateBillingModal = ({
   const handleDiscountChange = (productId: string, value: string) => {
     setItems(
       items.map((item) =>
-        item.productId === productId
-          ? { ...item, discountInput: value }
-          : item,
+        item.productId === productId ? { ...item, discountInput: value } : item,
       ),
     );
   };
@@ -241,6 +233,12 @@ const CreateBillingModal = ({
     setPnfEnabled(false);
     setPnfAmount("");
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen]);
 
   const handleClose = () => {
     resetForm();
@@ -586,7 +584,10 @@ const CreateBillingModal = ({
                               />
                               {(() => {
                                 const gross = item.price * item.quantity;
-                                const disc = parseDiscount(item.discountInput, gross);
+                                const disc = parseDiscount(
+                                  item.discountInput,
+                                  gross,
+                                );
                                 return disc > 0 ? (
                                   <p className="text-xs text-red-500 mt-0.5">
                                     −₹{disc.toFixed(2)}
@@ -597,7 +598,10 @@ const CreateBillingModal = ({
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
                               {(() => {
                                 const gross = item.price * item.quantity;
-                                const disc = parseDiscount(item.discountInput, gross);
+                                const disc = parseDiscount(
+                                  item.discountInput,
+                                  gross,
+                                );
                                 const sub = Math.max(0, gross - disc);
                                 return (
                                   <>
@@ -677,7 +681,8 @@ const CreateBillingModal = ({
                 <div>
                   {pnfEnabled && pnfValue > 0 && (
                     <p className="text-xs text-gray-400 mb-0.5">
-                      Items: ₹{itemsTotal.toFixed(2)} + P&F: ₹{pnfValue.toFixed(2)}
+                      Items: ₹{itemsTotal.toFixed(2)} + P&F: ₹
+                      {pnfValue.toFixed(2)}
                     </p>
                   )}
                   <p className="text-xs text-gray-500 uppercase font-medium tracking-wider">
