@@ -29,6 +29,8 @@ app.use(bodyParser.urlencoded({ extended: false }));
 const allowedOrigins = [
   "https://inventory-management-seven-rose-59.vercel.app",
   "http://localhost:3000",
+  "https://roshannotebooks.store",
+  "https://www.roshannotebooks.store",
 ];
 
 app.use(
