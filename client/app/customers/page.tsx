@@ -33,15 +33,11 @@ import {
 import { useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Header from "@/app/(components)/Header";
-import CreateCustomerModal from "./CreateCustomerModal";
+import CreateCustomerModal, {
+  type CreateCustomerSubmitPayload,
+  type UpdateCustomerSubmitPayload,
+} from "./CreateCustomerModal";
 import { toast } from "sonner";
-
-type CustomerFormData = {
-  customerId: string;
-  name: string;
-  email: string;
-  address: string;
-};
 
 const formatDate = (timestamp: string) =>
   new Date(timestamp).toLocaleDateString("en-US", {
@@ -625,7 +621,9 @@ const Customers = () => {
     }
   };
 
-  const handleCreateCustomer = async (customerData: CustomerFormData) => {
+  const handleCreateCustomer = async (
+    customerData: CreateCustomerSubmitPayload,
+  ) => {
     try {
       await createCustomer(customerData).unwrap();
       toast.success("Customer created successfully");
@@ -636,7 +634,7 @@ const Customers = () => {
 
   const handleUpdateCustomer = async (
     customerId: string,
-    data: { name: string; email: string; address: string },
+    data: UpdateCustomerSubmitPayload,
   ) => {
     try {
       await updateCustomer({ customerId, data }).unwrap();

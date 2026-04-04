@@ -11,11 +11,27 @@ type CustomerFormData = {
   address: string;
 };
 
+export type CreateCustomerSubmitPayload = {
+  customerId: string;
+  name: string;
+  address: string;
+  email?: string;
+};
+
+export type UpdateCustomerSubmitPayload = {
+  name: string;
+  address: string;
+  email?: string;
+};
+
 type CreateCustomerModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (formData: CustomerFormData) => void;
-  onUpdate?: (customerId: string, data: { name: string; email: string; address: string }) => void;
+  onCreate: (data: CreateCustomerSubmitPayload) => void;
+  onUpdate?: (
+    customerId: string,
+    data: UpdateCustomerSubmitPayload,
+  ) => void;
   editingCustomer?: Customer | null;
 };
 
@@ -63,14 +79,22 @@ const CreateCustomerModal = ({
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const trimmedEmail = formData.email.trim();
+    const emailField = trimmedEmail ? { email: trimmedEmail } : {};
+
     if (isEditing && onUpdate) {
       onUpdate(editingCustomer.customerId, {
         name: formData.name,
-        email: formData.email,
         address: formData.address,
+        ...emailField,
       });
     } else {
-      onCreate(formData);
+      onCreate({
+        customerId: formData.customerId,
+        name: formData.name,
+        address: formData.address,
+        ...emailField,
+      });
     }
     setFormData({ customerId: "", name: "", email: "", address: "" });
     onClose();
