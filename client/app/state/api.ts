@@ -213,7 +213,6 @@ export interface CreateBillingRequest {
 }
 
 export interface UpdateBillingRequest {
-  customerId: string;
   totalAmount: number;
   pnfCharges: number;
   items: Array<{
@@ -380,6 +379,16 @@ export const api = createApi({
         body: data,
       }),
       invalidatesTags: ["Products"],
+    }),
+    deleteProduct: build.mutation<
+      { message: string; productId: string },
+      string
+    >({
+      query: (productId) => ({
+        url: `/products/${productId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Products", "DashboardMetrics"],
     }),
 
     // Expenses CRUD
@@ -555,7 +564,7 @@ export const api = createApi({
         method: "POST",
         body: billingData,
       }),
-      invalidatesTags: ["Billings", "Products", "Customers"],
+      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
     }),
     sendBillingEmail: build.mutation<
       { message: string },
@@ -576,7 +585,17 @@ export const api = createApi({
         method: "PUT",
         body: data,
       }),
-      invalidatesTags: ["Billings", "Products", "Customers"],
+      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
+    }),
+    deleteBilling: build.mutation<
+      { message: string; billingId: string },
+      string
+    >({
+      query: (billingId) => ({
+        url: `/billing/${billingId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
     }),
     sendCustomerStatementEmail: build.mutation<
       { message: string },
@@ -596,6 +615,23 @@ export const api = createApi({
   }),
 });
 
+/**
+ * Message from RTK Query `unwrap()` rejection (fetchBaseQuery).
+ * Response JSON `{ message: string }` is on `error.data`, not `error.data.data`.
+ */
+export function getRtkQueryErrorMessage(error: unknown): string | undefined {
+  if (error == null || typeof error !== "object") return undefined;
+  const e = error as Record<string, unknown>;
+  const data = e.data;
+  if (data != null && typeof data === "object" && "message" in data) {
+    const m = (data as { message: unknown }).message;
+    if (typeof m === "string" && m.trim()) return m;
+  }
+  if (typeof e.error === "string" && e.error.trim()) return e.error;
+  if (typeof e.message === "string" && e.message.trim()) return e.message;
+  return undefined;
+}
+
 export const {
   useLoginMutation,
   useRegisterMutation,
@@ -606,6 +642,7 @@ export const {
   useGetProductsQuery,
   useCreateProductMutation,
   useUpdateProductMutation,
+  useDeleteProductMutation,
   useGetExpensesQuery,
   useGetExpenseByIdQuery,
   useCreateExpenseMutation,
@@ -631,6 +668,7 @@ export const {
   useGetBillingByIdQuery,
   useCreateBillingMutation,
   useUpdateBillingMutation,
+  useDeleteBillingMutation,
   useSendBillingEmailMutation,
   useSendCustomerStatementEmailMutation,
 } = api;

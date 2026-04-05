@@ -3,8 +3,12 @@
 import {
   useGetBillingsQuery,
   useCreateBillingMutation,
+  useUpdateBillingMutation,
+  useDeleteBillingMutation,
   useSendBillingEmailMutation,
+  type Billing,
   type CreateBillingRequest,
+  type UpdateBillingRequest,
 } from "../state/api";
 import {
   Plus,
@@ -18,6 +22,8 @@ import {
   Mail,
   Loader2,
   Filter,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -28,6 +34,7 @@ import { toast } from "sonner";
 const Billing = () => {
   const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingBilling, setEditingBilling] = useState<Billing | null>(null);
   const [expandedBill, setExpandedBill] = useState<string | null>(null);
   const [emailingBillId, setEmailingBillId] = useState<string | null>(null);
   const [selectedCustomerName, setSelectedCustomerName] = useState<string>("");
@@ -37,7 +44,15 @@ const Billing = () => {
 
   const { data: billings, isLoading, isError } = useGetBillingsQuery();
   const [createBilling] = useCreateBillingMutation();
+  const [updateBilling] = useUpdateBillingMutation();
+  const [deleteBilling, { isLoading: isDeletingBill }] =
+    useDeleteBillingMutation();
   const [sendBillingEmail] = useSendBillingEmailMutation();
+
+  const openCreateModal = () => {
+    setEditingBilling(null);
+    setIsModalOpen(true);
+  };
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -48,6 +63,34 @@ const Billing = () => {
       setIsModalOpen(false);
     } catch {
       // error toast handled globally
+    }
+  };
+
+  const handleUpdateBilling = async (
+    billingId: string,
+    data: UpdateBillingRequest,
+  ) => {
+    await updateBilling({ billingId, data }).unwrap();
+    toast.success("Bill updated successfully");
+  };
+
+  const handleDeleteBilling = async (billing: Billing) => {
+    if (isDeletingBill) return;
+    if (
+      !window.confirm(
+        `Delete bill ${billing.billingId}? Sold quantities will be returned to stock, and the customer’s balance will be recalculated from remaining bills and payments.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteBilling(billing.billingId).unwrap();
+      toast.success("Bill deleted");
+      setExpandedBill((prev) =>
+        prev === billing.billingId ? null : prev,
+      );
+    } catch {
+      /* Error toast: rtkQueryErrorToast middleware (executeMutation only) */
     }
   };
 
@@ -176,7 +219,7 @@ const Billing = () => {
         </div>
         <button
           className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-5 rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
         >
           <Plus className="w-4 h-4" />
           Create Bill
@@ -331,7 +374,7 @@ const Billing = () => {
           {!hasActiveFilters && (
             <button
               className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition-colors"
-              onClick={() => setIsModalOpen(true)}
+              onClick={openCreateModal}
             >
               <Plus className="w-4 h-4" />
               Create Bill
@@ -573,7 +616,27 @@ const Billing = () => {
                   </div>
 
                   {/* ACTION BUTTONS */}
-                  <div className="mt-5 flex items-center justify-end gap-3">
+                  <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingBilling(billing);
+                        setIsModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      Edit bill
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBilling(billing)}
+                      disabled={isDeletingBill}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete bill
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleOpenPdf(billing.billingId)}
@@ -613,10 +676,13 @@ const Billing = () => {
       {/* MODAL */}
       <CreateBillingModal
         isOpen={isModalOpen}
+        editingBilling={editingBilling}
         onClose={() => {
           setIsModalOpen(false);
+          setEditingBilling(null);
         }}
         onCreate={handleCreateBilling}
+        onUpdate={handleUpdateBilling}
       />
     </div>
   );

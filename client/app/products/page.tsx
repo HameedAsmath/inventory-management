@@ -3,6 +3,7 @@
 import {
   useCreateProductMutation,
   useUpdateProductMutation,
+  useDeleteProductMutation,
   useGetProductsQuery,
   lowStockThreshold,
   type Product,
@@ -15,6 +16,7 @@ import {
   Filter,
   X,
   Edit2,
+  Trash2,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import Header from "@/app/(components)/Header";
@@ -40,6 +42,8 @@ const Products = () => {
 
   const [createProduct] = useCreateProductMutation();
   const [updateProduct] = useUpdateProductMutation();
+  const [deleteProduct, { isLoading: isDeletingProduct }] =
+    useDeleteProductMutation();
 
   const handleCreateProduct = async (productData: {
     name: string;
@@ -89,6 +93,26 @@ const Products = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingProduct(null);
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    if (isDeletingProduct) return;
+    if (
+      !window.confirm(
+        `Delete “${product.name}”? This cannot be undone. You can only delete products that are not on any bills, purchases, or sales.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteProduct(product.productId).unwrap();
+      toast.success("Product deleted");
+      setExpandedProduct((prev) =>
+        prev === product.productId ? null : prev,
+      );
+    } catch {
+      /* Error toast: rtkQueryErrorToast middleware (executeMutation only) */
+    }
   };
 
   const toggleExpand = (productId: string) => {
@@ -482,14 +506,25 @@ const Products = () => {
                             </p>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleEditClick(product)}
-                            className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            Edit Product
-                          </button>
+                          <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(product)}
+                              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                              Edit Product
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteProduct(product)}
+                              disabled={isDeletingProduct}
+                              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete Product
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -13,7 +13,9 @@ import {
   useGetProductsQuery,
   useCreateProductMutation,
   useUpdateProductMutation,
+  type Billing,
   type Product,
+  type UpdateBillingRequest,
   lowStockThreshold,
 } from "../state/api";
 import {
@@ -92,13 +94,21 @@ type CreateBillingModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: CreateBillingData) => void;
+  editingBilling?: Billing | null;
+  onUpdate?: (
+    billingId: string,
+    data: UpdateBillingRequest,
+  ) => Promise<void>;
 };
 
 const CreateBillingModal = ({
   isOpen,
   onClose,
   onCreate,
+  editingBilling = null,
+  onUpdate,
 }: CreateBillingModalProps) => {
+  const isEditMode = Boolean(editingBilling?.billingId);
   const [customerId, setCustomerId] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
@@ -292,7 +302,7 @@ const CreateBillingModal = ({
     );
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
@@ -314,26 +324,40 @@ const CreateBillingModal = ({
       }
     }
 
-    const billingData = {
-      customerId,
-      totalAmount,
-      pnfCharges: pnfValue,
-      items: items.map((item) => {
-        const qty = parseInt(item.quantityInput.trim(), 10);
-        const gross = item.price * qty;
-        const discount = parseDiscount(item.discountInput, gross);
-        return {
-          productId: item.productId,
-          quantity: qty,
-          price: item.price,
-          discount,
-        };
-      }),
-    };
+    const linePayload = items.map((item) => {
+      const qty = parseInt(item.quantityInput.trim(), 10);
+      const gross = item.price * qty;
+      const discount = parseDiscount(item.discountInput, gross);
+      return {
+        productId: item.productId,
+        quantity: qty,
+        price: item.price,
+        discount,
+      };
+    });
+
+    if (isEditMode && editingBilling && onUpdate) {
+      const updatePayload: UpdateBillingRequest = {
+        totalAmount,
+        pnfCharges: pnfValue,
+        items: linePayload,
+      };
+      try {
+        await onUpdate(editingBilling.billingId, updatePayload);
+        resetForm();
+        onClose();
+      } catch {
+        /* error toast from global handler */
+      }
+      return;
+    }
 
     const createData: CreateBillingData = {
       billingId: `BILL-${v4().slice(0, 8).toUpperCase()}`,
-      ...billingData,
+      customerId,
+      totalAmount,
+      pnfCharges: pnfValue,
+      items: linePayload,
     };
     onCreate(createData);
     resetForm();
@@ -353,11 +377,59 @@ const CreateBillingModal = ({
     setProductBeingEdited(null);
   };
 
+  /* Populate form when opening create vs edit (editingBilling identity). */
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    if (editingBilling) {
+      setCustomerId(editingBilling.customer.customerId);
+      setSelectedCustomerName(editingBilling.customer.name);
+      setCustomerSearch(editingBilling.customer.name);
+      setPnfEnabled(editingBilling.pnfCharges > 0);
+      setPnfAmount(
+        editingBilling.pnfCharges > 0
+          ? String(editingBilling.pnfCharges)
+          : "",
+      );
+      setItems(
+        editingBilling.BillingItem.map((line) => {
+          const p = line.product;
+          const price2 = p.price2 ?? null;
+          const isP2 =
+            price2 != null && Math.abs(line.price - price2) < 0.01;
+          const selectedPriceType: "price1" | "price2" = isP2
+            ? "price2"
+            : "price1";
+          const maxStock = (p.stockQuantity ?? 0) + line.quantity;
+          const disc =
+            line.discount > 0
+              ? Number.isInteger(line.discount)
+                ? String(line.discount)
+                : line.discount.toFixed(2)
+              : "";
+          return {
+            productId: line.productId,
+            productName: p.name,
+            quantityInput: String(line.quantity),
+            price: line.price,
+            price1: p.price1,
+            price2,
+            selectedPriceType,
+            discountInput: disc,
+            maxStock,
+          };
+        }),
+      );
+      setError("");
+      setProductSearch("");
+      setProductHighlightIndex(-1);
+      setShowProductDropdown(false);
+      setProductFormOpen(false);
+      setProductBeingEdited(null);
+    } else {
       resetForm();
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: reset when switching create/edit by billingId only
+  }, [isOpen, editingBilling?.billingId]);
 
   const handleClose = () => {
     resetForm();
@@ -504,10 +576,12 @@ const CreateBillingModal = ({
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Create New Bill
+                {isEditMode ? "Edit Bill" : "Create New Bill"}
               </h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Select a customer and add products to generate an invoice
+                {isEditMode
+                  ? `${editingBilling?.billingId} — customer cannot be changed`
+                  : "Select a customer and add products to generate an invoice"}
               </p>
             </div>
             <button
@@ -552,13 +626,15 @@ const CreateBillingModal = ({
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleClearCustomer}
-                      className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-blue-100 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    {!isEditMode && (
+                      <button
+                        type="button"
+                        onClick={handleClearCustomer}
+                        className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-blue-100 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="relative">
@@ -1013,7 +1089,7 @@ const CreateBillingModal = ({
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
-                    Create Bill
+                    {isEditMode ? "Save changes" : "Create Bill"}
                   </button>
                 </div>
               </div>

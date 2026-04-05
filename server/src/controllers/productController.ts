@@ -198,3 +198,54 @@ export const updateProduct = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error Updating Product" });
   }
 };
+
+export const deleteProduct = async (req: Request, res: Response) => {
+  try {
+    const productId = String(req.params.productId);
+
+    const product = await prisma.products.findUnique({
+      where: { productId },
+    });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const [billingItemCount, purchaseItemCount, salesCount] = await Promise.all([
+      prisma.billingItem.count({ where: { productId } }),
+      prisma.purchaseItem.count({ where: { productId } }),
+      prisma.sales.count({ where: { productId } }),
+    ]);
+
+    if (
+      billingItemCount > 0 ||
+      purchaseItemCount > 0 ||
+      salesCount > 0
+    ) {
+      const reasons: string[] = [];
+      if (billingItemCount > 0) {
+        reasons.push(
+          `${billingItemCount} billing line${billingItemCount === 1 ? "" : "s"}`,
+        );
+      }
+      if (purchaseItemCount > 0) {
+        reasons.push(
+          `${purchaseItemCount} purchase line${purchaseItemCount === 1 ? "" : "s"}`,
+        );
+      }
+      if (salesCount > 0) {
+        reasons.push(
+          `${salesCount} sales record${salesCount === 1 ? "" : "s"}`,
+        );
+      }
+      return res.status(409).json({
+        message: `This product cannot be deleted because it is still linked to ${reasons.join(", ")}.`,
+      });
+    }
+
+    await prisma.products.delete({ where: { productId } });
+    res.json({ message: "Product deleted", productId });
+  } catch (error) {
+    console.error("Error deleting product:", error);
+    res.status(500).json({ message: "Error deleting product" });
+  }
+};

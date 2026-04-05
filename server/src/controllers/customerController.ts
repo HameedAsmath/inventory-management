@@ -30,7 +30,7 @@ async function getUserShopDetails(
   };
 }
 
-async function recalculateCustomerBalances(tx: any, customerId: string) {
+export async function recalculateCustomerBalances(tx: any, customerId: string) {
   const billedAgg = await tx.billing.aggregate({
     where: { customerId },
     _sum: { totalAmount: true },

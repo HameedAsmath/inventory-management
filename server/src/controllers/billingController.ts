@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "../lib/prisma.js";
 import { generateInvoicePdf, ShopDetails } from "../lib/generateInvoicePdf.js";
 import { sendInvoiceEmail } from "../lib/sendEmail.js";
+import { recalculateCustomerBalances } from "./customerController.js";
 
 async function getUserShopDetails(
   userId?: string,
@@ -324,8 +325,191 @@ export const emailBillingInvoice = async (req: Request, res: Response) => {
 };
 
 export const updateBilling = async (req: Request, res: Response) => {
-  return res.status(400).json({
-    message:
-      "Editing existing bills is disabled after moving to customer-level payment tracking",
-  });
+  try {
+    const billingId = String(req.params.billingId);
+    const { totalAmount, pnfCharges, items } = req.body;
+
+    if (!totalAmount || !items || !Array.isArray(items)) {
+      return res.status(400).json({
+        message: "totalAmount and items array are required",
+      });
+    }
+    if (items.length === 0) {
+      return res.status(400).json({
+        message: "At least one item is required",
+      });
+    }
+
+    const computedItemsTotal = items.reduce((sum: number, item: any) => {
+      const gross = item.quantity * item.price;
+      const discount = item.discount || 0;
+      return sum + Math.max(0, gross - discount);
+    }, 0);
+    const computedTotalAmount =
+      computedItemsTotal + (typeof pnfCharges === "number" ? pnfCharges : 0);
+
+    if (Math.abs(computedTotalAmount - Number(totalAmount)) > 0.01) {
+      return res.status(400).json({
+        message:
+          "Provided totalAmount does not match the computed total from items and charges",
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.billing.findUnique({
+        where: { billingId },
+        include: {
+          BillingItem: true,
+        },
+      });
+
+      if (!existing) {
+        throw new Error("BILLING_NOT_FOUND");
+      }
+
+      for (const line of existing.BillingItem) {
+        await tx.products.update({
+          where: { productId: line.productId },
+          data: {
+            stockQuantity: { increment: line.quantity },
+          },
+        });
+      }
+
+      await tx.billingItem.deleteMany({ where: { billingId } });
+
+      const productIds = items.map((item: any) => item.productId);
+      const products = await tx.products.findMany({
+        where: { productId: { in: productIds } },
+      });
+
+      if (products.length !== productIds.length) {
+        throw new Error("PRODUCT_NOT_FOUND");
+      }
+
+      for (const item of items) {
+        const product = products.find((p) => p.productId === item.productId);
+        if (!product) {
+          throw new Error("PRODUCT_NOT_FOUND");
+        }
+        if (product.stockQuantity < item.quantity) {
+          throw new Error(
+            `INSUFFICIENT_STOCK|${product.name}|${product.stockQuantity}|${item.quantity}`,
+          );
+        }
+      }
+
+      for (const item of items) {
+        const gross = item.quantity * item.price;
+        const discount = item.discount || 0;
+        const subtotal = Math.max(0, gross - discount);
+
+        await tx.products.update({
+          where: { productId: item.productId },
+          data: {
+            stockQuantity: { decrement: item.quantity },
+          },
+        });
+
+        await tx.billingItem.create({
+          data: {
+            billingItemId: randomUUID(),
+            billingId,
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            discount,
+            subtotal,
+          },
+        });
+      }
+
+      await tx.billing.update({
+        where: { billingId },
+        data: {
+          totalAmount: computedTotalAmount,
+          pnfCharges: pnfCharges || 0,
+        },
+      });
+
+      await recalculateCustomerBalances(tx, existing.customerId);
+
+      return await tx.billing.findUnique({
+        where: { billingId },
+        include: {
+          customer: {
+            select: {
+              customerId: true,
+              name: true,
+              email: true,
+              address: true,
+              totalOutstanding: true,
+              totalCredit: true,
+            },
+          } as any,
+          BillingItem: {
+            include: {
+              product: true,
+            },
+          },
+        },
+      });
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error?.message === "BILLING_NOT_FOUND") {
+      return res.status(404).json({ message: "Billing not found" });
+    }
+    if (error?.message === "PRODUCT_NOT_FOUND") {
+      return res.status(400).json({ message: "One or more products not found" });
+    }
+    if (typeof error?.message === "string" && error.message.startsWith("INSUFFICIENT_STOCK|")) {
+      const [, name, avail, req] = error.message.split("|");
+      return res.status(400).json({
+        message: `Insufficient stock for product ${name}. Available: ${avail}, Requested: ${req}`,
+      });
+    }
+    console.error("Error updating billing:", error);
+    res.status(500).json({ message: "Error updating billing" });
+  }
+};
+
+export const deleteBilling = async (req: Request, res: Response) => {
+  try {
+    const billingId = String(req.params.billingId);
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.billing.findUnique({
+        where: { billingId },
+        include: { BillingItem: true },
+      });
+
+      if (!existing) {
+        throw new Error("BILLING_NOT_FOUND");
+      }
+
+      for (const line of existing.BillingItem) {
+        await tx.products.update({
+          where: { productId: line.productId },
+          data: {
+            stockQuantity: { increment: line.quantity },
+          },
+        });
+      }
+
+      await tx.billingItem.deleteMany({ where: { billingId } });
+      await tx.billing.delete({ where: { billingId } });
+
+      await recalculateCustomerBalances(tx, existing.customerId);
+    });
+
+    res.json({ message: "Bill deleted", billingId });
+  } catch (error: any) {
+    if (error?.message === "BILLING_NOT_FOUND") {
+      return res.status(404).json({ message: "Billing not found" });
+    }
+    console.error("Error deleting billing:", error);
+    res.status(500).json({ message: "Error deleting billing" });
+  }
 };
