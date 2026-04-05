@@ -1,6 +1,13 @@
 "use client";
 
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   useGetProductsQuery,
   useGetSuppliersQuery,
@@ -66,6 +73,8 @@ const CreatePurchaseModal = ({
   const [items, setItems] = useState<PurchaseItemInput[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [productHighlightIndex, setProductHighlightIndex] = useState(-1);
+  const productHighlightRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState("");
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productBeingEdited, setProductBeingEdited] = useState<Product | null>(
@@ -90,6 +99,39 @@ const CreatePurchaseModal = ({
     });
     return Array.from(set).sort();
   }, [catalogProducts]);
+
+  const purchaseSelectableProductIndices = useMemo(() => {
+    if (!products?.length) return [];
+    const out: number[] = [];
+    products.forEach((p, i) => {
+      if (items.some((x) => x.productId === p.productId)) return;
+      out.push(i);
+    });
+    return out;
+  }, [products, items]);
+
+  const productDropdownOpen =
+    showProductDropdown &&
+    Boolean(productSearch?.trim()) &&
+    Boolean(products?.length);
+
+  const activeProductDropdownIndex = useMemo(() => {
+    const indices = purchaseSelectableProductIndices;
+    if (!indices.length) return -1;
+    if (
+      productHighlightIndex >= 0 &&
+      indices.includes(productHighlightIndex)
+    ) {
+      return productHighlightIndex;
+    }
+    return indices[0];
+  }, [purchaseSelectableProductIndices, productHighlightIndex]);
+
+  useEffect(() => {
+    if (activeProductDropdownIndex >= 0) {
+      productHighlightRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeProductDropdownIndex]);
 
   const totalAmount = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0),
@@ -203,6 +245,7 @@ const CreatePurchaseModal = ({
     setNotes("");
     setItems([]);
     setProductSearch("");
+    setProductHighlightIndex(-1);
     setShowProductDropdown(false);
     setError("");
     setProductFormOpen(false);
@@ -292,6 +335,43 @@ const CreatePurchaseModal = ({
     }
     setProductBeingEdited(p);
     setProductFormOpen(true);
+  };
+
+  const handleProductSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setShowProductDropdown(false);
+      return;
+    }
+    if (!productDropdownOpen || !products?.length) return;
+
+    const indices = purchaseSelectableProductIndices;
+    const active =
+      productHighlightIndex >= 0 && indices.includes(productHighlightIndex)
+        ? productHighlightIndex
+        : (indices[0] ?? -1);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!indices.length) return;
+      const pos = indices.indexOf(active);
+      const next = pos < 0 ? 0 : (pos + 1) % indices.length;
+      setProductHighlightIndex(indices[next]);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!indices.length) return;
+      const pos = indices.indexOf(active);
+      const next = pos <= 0 ? indices.length - 1 : pos - 1;
+      setProductHighlightIndex(indices[next]);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (active >= 0 && indices.includes(active)) {
+        handleAddProduct(products[active]);
+      }
+    }
   };
 
   if (!isOpen) return null;
@@ -451,34 +531,49 @@ const CreatePurchaseModal = ({
                       value={productSearch}
                       onChange={(e) => {
                         setProductSearch(e.target.value);
+                        setProductHighlightIndex(-1);
                         setShowProductDropdown(true);
                       }}
                       onFocus={() => setShowProductDropdown(true)}
                       onBlur={() =>
                         setTimeout(() => setShowProductDropdown(false), 200)
                       }
+                      onKeyDown={handleProductSearchKeyDown}
+                      autoComplete="off"
                       className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                     />
 
-                    {showProductDropdown &&
-                      productSearch &&
-                      products &&
-                      products.length > 0 && (
-                        <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto">
-                          {products.map((product) => {
+                    {productDropdownOpen && products && (
+                        <div
+                          className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto"
+                          role="listbox"
+                          aria-label="Product search results"
+                        >
+                          {products.map((product, idx) => {
                             const alreadyAdded = items.some(
                               (item) => item.productId === product.productId,
                             );
+                            const isHighlighted = activeProductDropdownIndex === idx;
                             return (
                               <button
                                 key={product.productId}
+                                ref={isHighlighted ? productHighlightRef : null}
                                 type="button"
+                                role="option"
+                                aria-selected={isHighlighted}
+                                onMouseEnter={() => {
+                                  if (!alreadyAdded) {
+                                    setProductHighlightIndex(idx);
+                                  }
+                                }}
                                 onClick={() => handleAddProduct(product)}
                                 disabled={alreadyAdded}
                                 className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
                                   alreadyAdded
                                     ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                    : "hover:bg-gray-50"
+                                    : isHighlighted
+                                      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+                                      : "hover:bg-gray-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
@@ -503,7 +598,7 @@ const CreatePurchaseModal = ({
                             );
                           })}
                         </div>
-                      )}
+                    )}
                   </div>
                   <button
                     type="button"

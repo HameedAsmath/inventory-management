@@ -1,6 +1,13 @@
 "use client";
 
-import React, { FormEvent, useState, useEffect, useMemo } from "react";
+import React, {
+  FormEvent,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   useGetCustomersQuery,
   useGetProductsQuery,
@@ -27,7 +34,7 @@ import CreateProductModal from "../products/CreateProductModal";
 type BillingItemInput = {
   productId: string;
   productName: string;
-  quantity: number;
+  quantityInput: string;
   price: number;
   price1: number;
   price2: number | null;
@@ -48,6 +55,24 @@ function parseDiscount(input: string, gross: number): number {
   const amt = parseFloat(trimmed);
   if (isNaN(amt) || amt < 0) return 0;
   return Math.min(amt, gross);
+}
+
+/** Qty used for line totals while typing: empty / invalid → 0; capped at maxStock. */
+function quantityForPricing(qtyInput: string, maxStock: number): number {
+  const t = qtyInput.trim();
+  if (t === "") return 0;
+  const n = parseInt(t, 10);
+  if (isNaN(n) || n < 0) return 0;
+  return Math.min(n, maxStock);
+}
+
+function isValidBillQuantity(qtyInput: string, maxStock: number): boolean {
+  const t = qtyInput.trim();
+  if (t === "") return false;
+  const n = parseInt(t, 10);
+  if (isNaN(n) || n < 1) return false;
+  if (n > maxStock) return false;
+  return true;
 }
 
 type CreateBillingData = {
@@ -81,6 +106,8 @@ const CreateBillingModal = ({
   const [items, setItems] = useState<BillingItemInput[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [productHighlightIndex, setProductHighlightIndex] = useState(-1);
+  const productHighlightRef = useRef<HTMLButtonElement | null>(null);
   const [pnfEnabled, setPnfEnabled] = useState(false);
   const [pnfAmount, setPnfAmount] = useState("");
   const [error, setError] = useState("");
@@ -106,11 +133,56 @@ const CreateBillingModal = ({
     return Array.from(set).sort();
   }, [catalogProducts]);
 
+  /** Indices in `products` that can be chosen from the keyboard (in stock, not on bill). */
+  const billingSelectableProductIndices = useMemo(() => {
+    if (!products?.length) return [];
+    const out: number[] = [];
+    products.forEach((p, i) => {
+      if (items.some((x) => x.productId === p.productId)) return;
+      if (p.stockQuantity <= 0) return;
+      out.push(i);
+    });
+    return out;
+  }, [products, items]);
+
+  const productDropdownOpen =
+    showProductDropdown &&
+    Boolean(productSearch?.trim()) &&
+    Boolean(products?.length);
+
+  const activeProductDropdownIndex = useMemo(() => {
+    const indices = billingSelectableProductIndices;
+    if (!indices.length) return -1;
+    if (
+      productHighlightIndex >= 0 &&
+      indices.includes(productHighlightIndex)
+    ) {
+      return productHighlightIndex;
+    }
+    return indices[0];
+  }, [billingSelectableProductIndices, productHighlightIndex]);
+
+  useEffect(() => {
+    if (activeProductDropdownIndex >= 0) {
+      productHighlightRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeProductDropdownIndex]);
+
   const itemsTotal = items.reduce((sum, item) => {
-    const gross = item.price * item.quantity;
+    const q = quantityForPricing(item.quantityInput, item.maxStock);
+    const gross = item.price * q;
     const disc = parseDiscount(item.discountInput, gross);
     return sum + Math.max(0, gross - disc);
   }, 0);
+
+  const allLineQuantitiesValid = useMemo(
+    () =>
+      items.length > 0 &&
+      items.every((item) =>
+        isValidBillQuantity(item.quantityInput, item.maxStock),
+      ),
+    [items],
+  );
 
   const pnfValue = pnfEnabled ? parseFloat(pnfAmount) || 0 : 0;
   const totalAmount = itemsTotal + pnfValue;
@@ -151,7 +223,7 @@ const CreateBillingModal = ({
       {
         productId: product.productId,
         productName: product.name,
-        quantity: 1,
+        quantityInput: "1",
         price: product.price1,
         price1: product.price1,
         price2: product.price2 ?? null,
@@ -198,16 +270,25 @@ const CreateBillingModal = ({
     );
   };
 
-  const handleQuantityChange = (productId: string, quantity: number) => {
+  const handleQuantityInputChange = (productId: string, value: string) => {
+    if (value !== "" && !/^\d+$/.test(value)) return;
     setItems(
       items.map((item) =>
-        item.productId === productId
-          ? {
-              ...item,
-              quantity: Math.max(1, Math.min(quantity, item.maxStock)),
-            }
-          : item,
+        item.productId === productId ? { ...item, quantityInput: value } : item,
       ),
+    );
+  };
+
+  const handleQuantityStep = (productId: string, delta: number) => {
+    setItems(
+      items.map((item) => {
+        if (item.productId !== productId) return item;
+        const t = item.quantityInput.trim();
+        const cur = t === "" ? 0 : parseInt(t, 10);
+        const base = t === "" || isNaN(cur) ? 0 : cur;
+        const next = Math.max(0, Math.min(base + delta, item.maxStock));
+        return { ...item, quantityInput: String(next) };
+      }),
     );
   };
 
@@ -224,16 +305,26 @@ const CreateBillingModal = ({
       return;
     }
 
+    for (const item of items) {
+      if (!isValidBillQuantity(item.quantityInput, item.maxStock)) {
+        setError(
+          `Enter a valid quantity (1–${item.maxStock}) for ${item.productName}.`,
+        );
+        return;
+      }
+    }
+
     const billingData = {
       customerId,
       totalAmount,
       pnfCharges: pnfValue,
       items: items.map((item) => {
-        const gross = item.price * item.quantity;
+        const qty = parseInt(item.quantityInput.trim(), 10);
+        const gross = item.price * qty;
         const discount = parseDiscount(item.discountInput, gross);
         return {
           productId: item.productId,
-          quantity: item.quantity,
+          quantity: qty,
           price: item.price,
           discount,
         };
@@ -255,6 +346,7 @@ const CreateBillingModal = ({
     setItems([]);
     setError("");
     setProductSearch("");
+    setProductHighlightIndex(-1);
     setPnfEnabled(false);
     setPnfAmount("");
     setProductFormOpen(false);
@@ -286,6 +378,13 @@ const CreateBillingModal = ({
           item.selectedPriceType === "price1"
             ? updated.price1
             : (price2 ?? updated.price1);
+        const prev = parseInt(item.quantityInput.trim(), 10);
+        const safePrev =
+          item.quantityInput.trim() === "" || isNaN(prev) ? 1 : prev;
+        const nextQty = Math.max(
+          1,
+          Math.min(safePrev, Math.max(updated.stockQuantity, 1)),
+        );
         return {
           ...item,
           productName: updated.name,
@@ -293,10 +392,7 @@ const CreateBillingModal = ({
           price2,
           price: nextPrice,
           maxStock: updated.stockQuantity,
-          quantity: Math.max(
-            1,
-            Math.min(item.quantity, Math.max(updated.stockQuantity, 1)),
-          ),
+          quantityInput: String(nextQty),
         };
       }),
     );
@@ -335,7 +431,10 @@ const CreateBillingModal = ({
     },
   ) => {
     try {
-      const updated = await updateProduct({ productId, data: formData }).unwrap();
+      const updated = await updateProduct({
+        productId,
+        data: formData,
+      }).unwrap();
       toast.success("Product updated");
       syncBillingLineFromProduct(updated);
       handleCloseProductForm();
@@ -352,6 +451,43 @@ const CreateBillingModal = ({
     }
     setProductBeingEdited(p);
     setProductFormOpen(true);
+  };
+
+  const handleProductSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setShowProductDropdown(false);
+      return;
+    }
+    if (!productDropdownOpen || !products?.length) return;
+
+    const indices = billingSelectableProductIndices;
+    const active =
+      productHighlightIndex >= 0 && indices.includes(productHighlightIndex)
+        ? productHighlightIndex
+        : (indices[0] ?? -1);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!indices.length) return;
+      const pos = indices.indexOf(active);
+      const next = pos < 0 ? 0 : (pos + 1) % indices.length;
+      setProductHighlightIndex(indices[next]);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!indices.length) return;
+      const pos = indices.indexOf(active);
+      const next = pos <= 0 ? indices.length - 1 : pos - 1;
+      setProductHighlightIndex(indices[next]);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (active >= 0 && indices.includes(active)) {
+        handleAddProduct(products[active]);
+      }
+    }
   };
 
   if (!isOpen) return null;
@@ -502,78 +638,96 @@ const CreateBillingModal = ({
                       value={productSearch}
                       onChange={(e) => {
                         setProductSearch(e.target.value);
+                        setProductHighlightIndex(-1);
                         setShowProductDropdown(true);
                       }}
                       onFocus={() => setShowProductDropdown(true)}
                       onBlur={() =>
                         setTimeout(() => setShowProductDropdown(false), 200)
                       }
+                      onKeyDown={handleProductSearchKeyDown}
+                      autoComplete="off"
                       className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                     />
-                  {showProductDropdown &&
-                    productSearch &&
-                    products &&
-                    products.length > 0 && (
-                      <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto">
-                        {products.map((product) => {
-                          const alreadyAdded = items.some(
-                            (i) => i.productId === product.productId,
-                          );
-                          const lowTh = lowStockThreshold(product);
-                          const isLowStock =
-                            product.stockQuantity > 0 &&
-                            product.stockQuantity < lowTh;
-                          return (
-                            <button
-                              key={product.productId}
-                              type="button"
-                              onClick={() => handleAddProduct(product)}
-                              disabled={alreadyAdded}
-                              className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
-                                alreadyAdded
-                                  ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                  : product.stockQuantity <= 0
-                                    ? "opacity-50"
-                                    : "hover:bg-gray-50"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                                  <Package className="w-3.5 h-3.5 text-emerald-600" />
-                                </div>
-                                <div>
-                                  <p className="font-medium text-gray-800">
-                                    {product.name}
-                                    {alreadyAdded && (
-                                      <span className="ml-2 text-xs text-gray-400">
-                                        (added)
-                                      </span>
-                                    )}
-                                  </p>
-                                  <p className="text-xs text-gray-400">
-                                    ₹{product.price1.toFixed(2)}
-                                  </p>
-                                </div>
-                              </div>
-                              <span
-                                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                                  product.stockQuantity <= 0
-                                    ? "bg-red-50 text-red-600"
-                                    : isLowStock
-                                      ? "bg-amber-50 text-amber-600"
-                                      : "bg-emerald-50 text-emerald-600"
+                    {productDropdownOpen && products && (
+                        <div
+                          className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto"
+                          role="listbox"
+                          aria-label="Product search results"
+                        >
+                          {products.map((product, idx) => {
+                            const alreadyAdded = items.some(
+                              (i) => i.productId === product.productId,
+                            );
+                            const lowTh = lowStockThreshold(product);
+                            const isLowStock =
+                              product.stockQuantity > 0 &&
+                              product.stockQuantity < lowTh;
+                            const isHighlighted = activeProductDropdownIndex === idx;
+                            return (
+                              <button
+                                key={product.productId}
+                                ref={isHighlighted ? productHighlightRef : null}
+                                type="button"
+                                role="option"
+                                aria-selected={isHighlighted}
+                                onMouseEnter={() => {
+                                  if (
+                                    !alreadyAdded &&
+                                    product.stockQuantity > 0
+                                  ) {
+                                    setProductHighlightIndex(idx);
+                                  }
+                                }}
+                                onClick={() => handleAddProduct(product)}
+                                disabled={alreadyAdded}
+                                className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
+                                  alreadyAdded
+                                    ? "bg-gray-50 opacity-50 cursor-not-allowed"
+                                    : product.stockQuantity <= 0
+                                      ? "opacity-50"
+                                      : isHighlighted
+                                        ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+                                        : "hover:bg-gray-50"
                                 }`}
                               >
-                                {product.stockQuantity <= 0
-                                  ? "Out of stock"
-                                  : isLowStock
-                                    ? `Low (${product.stockQuantity} < ${lowTh})`
-                                    : `${product.stockQuantity} in stock`}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                                    <Package className="w-3.5 h-3.5 text-emerald-600" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-800">
+                                      {product.name}
+                                      {alreadyAdded && (
+                                        <span className="ml-2 text-xs text-gray-400">
+                                          (added)
+                                        </span>
+                                      )}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                      ₹{product.price1.toFixed(2)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span
+                                  className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                    product.stockQuantity <= 0
+                                      ? "bg-red-50 text-red-600"
+                                      : isLowStock
+                                        ? "bg-amber-50 text-amber-600"
+                                        : "bg-emerald-50 text-emerald-600"
+                                  }`}
+                                >
+                                  {product.stockQuantity <= 0
+                                    ? "Out of stock"
+                                    : isLowStock
+                                      ? `Low (${product.stockQuantity} < ${lowTh})`
+                                      : `${product.stockQuantity} in stock`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                     )}
                   </div>
                   <button
@@ -636,24 +790,23 @@ const CreateBillingModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityChange(
-                                      item.productId,
-                                      item.quantity - 1,
-                                    )
+                                    handleQuantityStep(item.productId, -1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
                                   -
                                 </button>
                                 <input
-                                  type="number"
-                                  min={1}
-                                  max={item.maxStock}
-                                  value={item.quantity}
+                                  type="text"
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  maxLength={8}
+                                  aria-label="Quantity"
+                                  value={item.quantityInput}
                                   onChange={(e) =>
-                                    handleQuantityChange(
+                                    handleQuantityInputChange(
                                       item.productId,
-                                      parseInt(e.target.value) || 1,
+                                      e.target.value,
                                     )
                                   }
                                   className="w-12 py-1 text-center text-sm border-x border-gray-200 focus:outline-none"
@@ -661,10 +814,7 @@ const CreateBillingModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityChange(
-                                      item.productId,
-                                      item.quantity + 1,
-                                    )
+                                    handleQuantityStep(item.productId, 1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
@@ -713,7 +863,11 @@ const CreateBillingModal = ({
                                 title="Enter amount (e.g. 50) or percentage (e.g. 10%)"
                               />
                               {(() => {
-                                const gross = item.price * item.quantity;
+                                const q = quantityForPricing(
+                                  item.quantityInput,
+                                  item.maxStock,
+                                );
+                                const gross = item.price * q;
                                 const disc = parseDiscount(
                                   item.discountInput,
                                   gross,
@@ -727,7 +881,11 @@ const CreateBillingModal = ({
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
                               {(() => {
-                                const gross = item.price * item.quantity;
+                                const q = quantityForPricing(
+                                  item.quantityInput,
+                                  item.maxStock,
+                                );
+                                const gross = item.price * q;
                                 const disc = parseDiscount(
                                   item.discountInput,
                                   gross,
@@ -847,7 +1005,11 @@ const CreateBillingModal = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={!customerId || items.length === 0}
+                    disabled={
+                      !customerId ||
+                      items.length === 0 ||
+                      !allLineQuantitiesValid
+                    }
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
