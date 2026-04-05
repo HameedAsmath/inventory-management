@@ -1,6 +1,6 @@
 "use client";
 
-import { useGetProductsQuery } from "../state/api";
+import { useGetProductsQuery, lowStockThreshold } from "../state/api";
 import { Package, Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import Link from "next/link";
@@ -13,9 +13,14 @@ const StockLevels = () => {
 
     const totalProducts = products.length;
     const totalStock = products.reduce((sum, p) => sum + p.stockQuantity, 0);
-    const lowStock = products.filter((p) => p.stockQuantity < 10).length;
+    const lowStock = products.filter(
+      (p) =>
+        p.stockQuantity > 0 && p.stockQuantity < lowStockThreshold(p),
+    ).length;
     const outOfStock = products.filter((p) => p.stockQuantity === 0).length;
-    const wellStocked = products.filter((p) => p.stockQuantity >= 10).length;
+    const wellStocked = products.filter(
+      (p) => p.stockQuantity >= lowStockThreshold(p),
+    ).length;
 
     return {
       totalProducts,

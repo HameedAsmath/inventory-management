@@ -4,11 +4,14 @@ import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   useGetProductsQuery,
   useGetSuppliersQuery,
+  useCreateProductMutation,
+  useUpdateProductMutation,
   type Product,
 } from "../state/api";
 import {
   Calendar,
   CheckCircle2,
+  Edit2,
   Package,
   Plus,
   Search,
@@ -17,12 +20,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
+import CreateProductModal from "../products/CreateProductModal";
 
 type PurchaseItemInput = {
   productId: string;
   productName: string;
   quantity: number;
   costPrice: number;
+  stockQuantity: number;
 };
 
 export type CreatePurchaseData = {
@@ -61,17 +67,29 @@ const CreatePurchaseModal = ({
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [error, setError] = useState("");
+  const [productFormOpen, setProductFormOpen] = useState(false);
+  const [productBeingEdited, setProductBeingEdited] = useState<Product | null>(
+    null,
+  );
 
   const { data: suppliers } = useGetSuppliersQuery(supplierSearch);
   const { data: products } = useGetProductsQuery(
     productSearch ? { search: productSearch } : undefined,
   );
+  const { data: catalogProducts } = useGetProductsQuery(undefined, {
+    skip: !isOpen,
+  });
+  const [createProduct] = useCreateProductMutation();
+  const [updateProduct] = useUpdateProductMutation();
 
-  useEffect(() => {
-    if (isOpen) {
-      resetForm();
-    }
-  }, [isOpen]);
+  const productCategories = useMemo(() => {
+    if (!catalogProducts) return [];
+    const set = new Set<string>();
+    catalogProducts.forEach((p) => {
+      if (p.category?.trim()) set.add(p.category.trim());
+    });
+    return Array.from(set).sort();
+  }, [catalogProducts]);
 
   const totalAmount = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0),
@@ -92,12 +110,12 @@ const CreatePurchaseModal = ({
     setSupplierSearch("");
   };
 
-  const handleAddProduct = (product: Product) => {
+  const handleAddProduct = (product: Product): boolean => {
     if (items.some((item) => item.productId === product.productId)) {
       setError(`${product.name} is already added. Adjust the quantity instead.`);
       setShowProductDropdown(false);
       setProductSearch("");
-      return;
+      return false;
     }
 
     setItems((prev) => [
@@ -107,11 +125,13 @@ const CreatePurchaseModal = ({
         productName: product.name,
         quantity: 1,
         costPrice: product.cp ?? 0,
+        stockQuantity: product.stockQuantity,
       },
     ]);
     setProductSearch("");
     setShowProductDropdown(false);
     setError("");
+    return true;
   };
 
   const handleRemoveItem = (productId: string) => {
@@ -185,11 +205,93 @@ const CreatePurchaseModal = ({
     setProductSearch("");
     setShowProductDropdown(false);
     setError("");
+    setProductFormOpen(false);
+    setProductBeingEdited(null);
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen]);
 
   const handleClose = () => {
     resetForm();
     onClose();
+  };
+
+  const handleCloseProductForm = () => {
+    setProductFormOpen(false);
+    setProductBeingEdited(null);
+  };
+
+  const syncPurchaseLineFromProduct = (updated: Product) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.productId !== updated.productId) return item;
+        return {
+          ...item,
+          productName: updated.name,
+          stockQuantity: updated.stockQuantity,
+          costPrice:
+            updated.cp != null && updated.cp > 0
+              ? updated.cp
+              : item.costPrice,
+        };
+      }),
+    );
+  };
+
+  const handleCreateProductFromModal = async (formData: {
+    name: string;
+    price1: number;
+    price2?: number;
+    cp?: number;
+    stockQuantity: number;
+    lowStockQuantity: number;
+    category?: string;
+  }) => {
+    try {
+      const created = await createProduct(formData).unwrap();
+      toast.success("Product created");
+      if (handleAddProduct(created)) {
+        handleCloseProductForm();
+      }
+    } catch {
+      /* toast from global handler */
+    }
+  };
+
+  const handleUpdateProductFromModal = async (
+    productId: string,
+    formData: {
+      name: string;
+      price1: number;
+      price2?: number;
+      cp?: number;
+      stockQuantity: number;
+      lowStockQuantity: number;
+      category?: string;
+    },
+  ) => {
+    try {
+      const updated = await updateProduct({ productId, data: formData }).unwrap();
+      toast.success("Product updated");
+      syncPurchaseLineFromProduct(updated);
+      handleCloseProductForm();
+    } catch {
+      /* toast from global handler */
+    }
+  };
+
+  const handleEditLineProduct = (productId: string) => {
+    const p = catalogProducts?.find((x) => x.productId === productId);
+    if (!p) {
+      toast.error("Product could not be loaded. Try again in a moment.");
+      return;
+    }
+    setProductBeingEdited(p);
+    setProductFormOpen(true);
   };
 
   if (!isOpen) return null;
@@ -340,65 +442,80 @@ const CreatePurchaseModal = ({
                   <h3 className="text-sm font-semibold text-gray-800">Products</h3>
                 </div>
 
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search and add products..."
-                    value={productSearch}
-                    onChange={(e) => {
-                      setProductSearch(e.target.value);
-                      setShowProductDropdown(true);
-                    }}
-                    onFocus={() => setShowProductDropdown(true)}
-                    onBlur={() =>
-                      setTimeout(() => setShowProductDropdown(false), 200)
-                    }
-                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  />
+                <div className="flex gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search and add products..."
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setShowProductDropdown(true);
+                      }}
+                      onFocus={() => setShowProductDropdown(true)}
+                      onBlur={() =>
+                        setTimeout(() => setShowProductDropdown(false), 200)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    />
 
-                  {showProductDropdown &&
-                    productSearch &&
-                    products &&
-                    products.length > 0 && (
-                      <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto">
-                        {products.map((product) => {
-                          const alreadyAdded = items.some(
-                            (item) => item.productId === product.productId,
-                          );
-                          return (
-                            <button
-                              key={product.productId}
-                              type="button"
-                              onClick={() => handleAddProduct(product)}
-                              disabled={alreadyAdded}
-                              className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
-                                alreadyAdded
-                                  ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                  : "hover:bg-gray-50"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                                  <Package className="w-3.5 h-3.5 text-emerald-600" />
+                    {showProductDropdown &&
+                      productSearch &&
+                      products &&
+                      products.length > 0 && (
+                        <div className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto">
+                          {products.map((product) => {
+                            const alreadyAdded = items.some(
+                              (item) => item.productId === product.productId,
+                            );
+                            return (
+                              <button
+                                key={product.productId}
+                                type="button"
+                                onClick={() => handleAddProduct(product)}
+                                disabled={alreadyAdded}
+                                className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
+                                  alreadyAdded
+                                    ? "bg-gray-50 opacity-50 cursor-not-allowed"
+                                    : "hover:bg-gray-50"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                                    <Package className="w-3.5 h-3.5 text-emerald-600" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-800">
+                                      {product.name}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                      CP: ₹{(product.cp ?? 0).toFixed(2)}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="font-medium text-gray-800">
-                                    {product.name}
-                                  </p>
-                                  <p className="text-xs text-gray-400">
-                                    CP: ₹{(product.cp ?? 0).toFixed(2)}
-                                  </p>
-                                </div>
-                              </div>
-                              {alreadyAdded && (
-                                <span className="text-xs text-gray-400">(added)</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                                {alreadyAdded && (
+                                  <span className="text-xs text-gray-400">
+                                    (added)
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductBeingEdited(null);
+                      setProductFormOpen(true);
+                    }}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    New product
+                  </button>
                 </div>
 
                 {items.length > 0 ? (
@@ -418,7 +535,9 @@ const CreatePurchaseModal = ({
                           <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
                             Subtotal
                           </th>
-                          <th className="w-10 px-2 py-2.5" />
+                          <th className="w-20 px-2 py-2.5 text-center text-gray-600 font-medium text-xs uppercase tracking-wider">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -427,8 +546,13 @@ const CreatePurchaseModal = ({
                             key={item.productId}
                             className={idx !== 0 ? "border-t border-gray-100" : ""}
                           >
-                            <td className="px-4 py-3 text-gray-800 font-medium">
-                              {item.productName}
+                            <td className="px-4 py-3">
+                              <p className="text-gray-800 font-medium">
+                                {item.productName}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                Stock: {item.stockQuantity}
+                              </p>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden">
@@ -489,13 +613,28 @@ const CreatePurchaseModal = ({
                               ₹{(item.quantity * item.costPrice).toFixed(2)}
                             </td>
                             <td className="px-2 py-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveItem(item.productId)}
-                                className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="inline-flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleEditLineProduct(item.productId)
+                                  }
+                                  className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                  title="Edit product"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemoveItem(item.productId)
+                                  }
+                                  className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Remove from purchase"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -546,6 +685,16 @@ const CreatePurchaseModal = ({
           </form>
         </div>
       </div>
+
+      <CreateProductModal
+        isOpen={productFormOpen}
+        onClose={handleCloseProductForm}
+        onCreate={handleCreateProductFromModal}
+        onUpdate={handleUpdateProductFromModal}
+        editingProduct={productBeingEdited}
+        existingCategories={productCategories}
+        wrapperClassName="z-[60]"
+      />
     </div>
   );
 };

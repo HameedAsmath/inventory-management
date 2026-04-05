@@ -1,16 +1,20 @@
 "use client";
 
-import { useGetProductsQuery } from "../state/api";
+import { useGetProductsQuery, lowStockThreshold } from "../state/api";
 import { AlertTriangle, Package, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 const LowStockAlerts = () => {
   const { data: products, isLoading, isError } = useGetProductsQuery();
 
-  const lowStockProducts = products
-    ?.filter((product) => product.stockQuantity < 10)
-    .sort((a, b) => a.stockQuantity - b.stockQuantity)
-    .slice(0, 5) || [];
+  const lowStockProducts =
+    products
+      ?.filter(
+        (product) =>
+          product.stockQuantity < lowStockThreshold(product),
+      )
+      .sort((a, b) => a.stockQuantity - b.stockQuantity)
+      .slice(0, 5) || [];
 
   if (isLoading) {
     return (
@@ -29,7 +33,8 @@ const LowStockAlerts = () => {
   }
 
   const hasNoProducts = !products || products.length === 0;
-  const totalLowStock = products?.filter((p) => p.stockQuantity < 10).length || 0;
+  const totalLowStock =
+    products?.filter((p) => p.stockQuantity < lowStockThreshold(p)).length || 0;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -70,7 +75,10 @@ const LowStockAlerts = () => {
       ) : lowStockProducts.length > 0 ? (
         <div className="space-y-3">
           {lowStockProducts.map((product) => {
-            const isCritical = product.stockQuantity < 5;
+            const threshold = lowStockThreshold(product);
+            const isCritical =
+              product.stockQuantity === 0 ||
+              product.stockQuantity < Math.max(1, Math.ceil(threshold / 2));
             return (
               <div
                 key={product.productId}
@@ -97,7 +105,7 @@ const LowStockAlerts = () => {
                       {product.name}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {product.stockQuantity} units remaining
+                      {product.stockQuantity} units (threshold {threshold})
                     </p>
                   </div>
                 </div>

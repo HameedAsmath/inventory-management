@@ -4,6 +4,7 @@ import {
   useGetProductsQuery,
   useGetBillingsQuery,
   useGetExpensesQuery,
+  lowStockThreshold,
 } from "../state/api";
 import {
   Package,
@@ -37,7 +38,8 @@ const Dashboard = () => {
     const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
 
     const lowStockCount =
-      products?.filter((p) => p.stockQuantity < 10).length || 0;
+      products?.filter((p) => p.stockQuantity < lowStockThreshold(p)).length ||
+      0;
 
     return {
       totalProducts,

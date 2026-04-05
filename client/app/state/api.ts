@@ -1,5 +1,7 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
+export const DEFAULT_LOW_STOCK_QUANTITY = 10;
+
 export interface Product {
   productId: string;
   name: string;
@@ -8,6 +10,11 @@ export interface Product {
   cp?: number | null;
   category?: string | null;
   stockQuantity: number;
+  lowStockQuantity?: number;
+}
+
+export function lowStockThreshold(product: Product): number {
+  return product.lowStockQuantity ?? DEFAULT_LOW_STOCK_QUANTITY;
 }
 
 export interface NewProduct {
@@ -17,6 +24,7 @@ export interface NewProduct {
   cp?: number;
   category?: string;
   stockQuantity: number;
+  lowStockQuantity?: number;
 }
 
 export interface SalesSummary {

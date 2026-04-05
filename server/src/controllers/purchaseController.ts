@@ -189,6 +189,7 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
           productId: true,
           name: true,
           stockQuantity: true,
+          lowStockQuantity: true,
           cp: true,
         },
       }),
@@ -215,7 +216,9 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
     );
     const outOfStockCount = products.filter((product) => product.stockQuantity === 0).length;
     const lowStockCount = products.filter(
-      (product) => product.stockQuantity > 0 && product.stockQuantity < 10,
+      (product) =>
+        product.stockQuantity > 0 &&
+        product.stockQuantity < product.lowStockQuantity,
     ).length;
 
     const purchasedProductMap = new Map<

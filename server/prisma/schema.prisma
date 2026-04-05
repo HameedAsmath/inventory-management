@@ -21,13 +21,14 @@ model User {
   createdAt   DateTime @default(now())
 }
 model Products {
-  productId     String        @id @default(uuid())
-  name          String
-  price1        Float
-  price2        Float?
-  cp            Float?
-  category      String?
-  stockQuantity Int
+  productId         String        @id @default(uuid())
+  name              String
+  price1            Float
+  price2            Float?
+  cp                Float?
+  category          String?
+  stockQuantity     Int
+  lowStockQuantity  Int           @default(10)
   Sales         Sales[]
   BillingItem   BillingItem[]
   PurchaseItem  PurchaseItem[]

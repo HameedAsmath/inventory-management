@@ -1,6 +1,19 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
 
+const DEFAULT_LOW_STOCK_QUANTITY = 10;
+
+function parseLowStockQuantity(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    return null;
+  }
+  return n;
+}
+
 // Normalize category name: trim spaces, handle case sensitivity
 const normalizeCategory = (
   category: string | undefined | null,
@@ -25,12 +38,20 @@ export const getProducts = async (req: Request, res: Response) => {
       };
     }
 
-    // Handle special filter cases
+    // Handle special filter cases (per-product threshold: stock < lowStockQuantity, in stock)
     if (category === "low-stock") {
-      where.stockQuantity = {
-        lt: 10,
-        gt: 0,
-      };
+      const baseWhere = search
+        ? { name: { contains: search, mode: "insensitive" as const } }
+        : {};
+      const list = await prisma.products.findMany({
+        where: baseWhere,
+        orderBy: { name: "asc" },
+      });
+      const filtered = list.filter(
+        (p) =>
+          p.stockQuantity > 0 && p.stockQuantity < p.lowStockQuantity,
+      );
+      return res.json(filtered);
     } else if (category === "out-of-stock") {
       where.stockQuantity = 0;
     } else if (category && category !== "all") {
@@ -72,12 +93,37 @@ export const getProducts = async (req: Request, res: Response) => {
 
 export const createProduct = async (req: Request, res: Response) => {
   try {
-    const { productId, name, price1, price2, cp, stockQuantity, category } =
-      req.body;
+    const {
+      productId,
+      name,
+      price1,
+      price2,
+      cp,
+      stockQuantity,
+      category,
+      lowStockQuantity: lowStockRaw,
+    } = req.body;
     if (!name || price1 === undefined || stockQuantity === undefined) {
       return res.status(400).json({
         message: "name, price1, and stockQuantity are required",
       });
+    }
+
+    let lowStockQuantity: number;
+    if (
+      lowStockRaw === undefined ||
+      lowStockRaw === null ||
+      lowStockRaw === ""
+    ) {
+      lowStockQuantity = DEFAULT_LOW_STOCK_QUANTITY;
+    } else {
+      const parsedLow = parseLowStockQuantity(lowStockRaw);
+      if (parsedLow === null) {
+        return res.status(400).json({
+          message: "lowStockQuantity must be a non-negative integer",
+        });
+      }
+      lowStockQuantity = parsedLow;
     }
 
     // Normalize category
@@ -91,6 +137,7 @@ export const createProduct = async (req: Request, res: Response) => {
         price2: price2 ?? null,
         cp: cp ?? null,
         stockQuantity,
+        lowStockQuantity,
         category: normalizedCategory,
       },
     });
@@ -107,7 +154,26 @@ export const createProduct = async (req: Request, res: Response) => {
 export const updateProduct = async (req: Request, res: Response) => {
   try {
     const { productId } = req.params;
-    const { name, price1, price2, cp, stockQuantity, category } = req.body;
+    const {
+      name,
+      price1,
+      price2,
+      cp,
+      stockQuantity,
+      category,
+      lowStockQuantity: lowStockRaw,
+    } = req.body;
+
+    let lowStockUpdate: { lowStockQuantity: number } | undefined;
+    if (lowStockRaw !== undefined) {
+      const parsed = parseLowStockQuantity(lowStockRaw);
+      if (parsed === null) {
+        return res.status(400).json({
+          message: "lowStockQuantity must be a non-negative integer",
+        });
+      }
+      lowStockUpdate = { lowStockQuantity: parsed };
+    }
 
     const product = await prisma.products.update({
       where: { productId: String(productId) },
@@ -117,6 +183,7 @@ export const updateProduct = async (req: Request, res: Response) => {
         ...(price2 !== undefined && { price2 }),
         ...(cp !== undefined && { cp }),
         ...(stockQuantity !== undefined && { stockQuantity }),
+        ...lowStockUpdate,
         ...(category !== undefined && {
           category: normalizeCategory(category),
         }),

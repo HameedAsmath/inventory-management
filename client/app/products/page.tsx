@@ -4,6 +4,7 @@ import {
   useCreateProductMutation,
   useUpdateProductMutation,
   useGetProductsQuery,
+  lowStockThreshold,
   type Product,
 } from "../state/api";
 import {
@@ -46,6 +47,7 @@ const Products = () => {
     price2?: number;
     cp?: number;
     stockQuantity: number;
+    lowStockQuantity: number;
     category?: string;
   }) => {
     try {
@@ -65,6 +67,7 @@ const Products = () => {
       price2?: number;
       cp?: number;
       stockQuantity: number;
+      lowStockQuantity: number;
       category?: string;
     },
   ) => {
@@ -107,20 +110,25 @@ const Products = () => {
     if (!products) return [];
     return products.filter((product) => {
       if (categoryFilter === "all") return true;
-      if (categoryFilter === "low-stock") return product.stockQuantity < 10;
+      if (categoryFilter === "low-stock")
+        return (
+          product.stockQuantity > 0 &&
+          product.stockQuantity < lowStockThreshold(product)
+        );
       if (categoryFilter === "out-of-stock") return product.stockQuantity === 0;
       return product.category === categoryFilter;
     });
   }, [products, categoryFilter]);
 
-  const getStockStatus = (stockQuantity: number) => {
-    if (stockQuantity === 0) {
+  const getStockStatus = (product: Product) => {
+    const threshold = lowStockThreshold(product);
+    if (product.stockQuantity === 0) {
       return {
         label: "Out of Stock",
         color: "bg-red-50 text-red-700 border-red-200",
       };
     }
-    if (stockQuantity < 10) {
+    if (product.stockQuantity < threshold) {
       return {
         label: "Low Stock",
         color: "bg-amber-50 text-amber-700 border-amber-200",
@@ -156,7 +164,8 @@ const Products = () => {
 
   const totalProducts = filteredProducts.length;
   const lowStockCount = filteredProducts.filter(
-    (p) => p.stockQuantity < 10,
+    (p) =>
+      p.stockQuantity > 0 && p.stockQuantity < lowStockThreshold(p),
   ).length;
   const outOfStockCount = filteredProducts.filter(
     (p) => p.stockQuantity === 0,
@@ -251,7 +260,7 @@ const Products = () => {
             className="pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white min-w-[200px]"
           >
             <option value="all">All Categories</option>
-            <option value="low-stock">Low Stock (&lt;10)</option>
+            <option value="low-stock">Low Stock (below product threshold)</option>
             <option value="out-of-stock">Out of Stock</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
@@ -289,7 +298,10 @@ const Products = () => {
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {filteredProducts.map((product, index) => {
-            const stockStatus = getStockStatus(product.stockQuantity);
+            const stockStatus = getStockStatus(product);
+            const threshold = lowStockThreshold(product);
+            const isLow =
+              product.stockQuantity > 0 && product.stockQuantity < threshold;
             return (
               <div
                 key={product.productId}
@@ -301,7 +313,7 @@ const Products = () => {
                   className={`w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/80 transition-colors ${
                     product.stockQuantity === 0
                       ? "bg-red-50/30"
-                      : product.stockQuantity < 10
+                      : isLow
                         ? "bg-amber-50/30"
                         : ""
                   }`}
@@ -311,15 +323,14 @@ const Products = () => {
                       className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center shadow-sm ${
                         product.stockQuantity === 0
                           ? "bg-red-100"
-                          : product.stockQuantity < 10
+                          : isLow
                             ? "bg-amber-100"
                             : "bg-gradient-to-br from-blue-500 to-blue-600"
                       }`}
                     >
                       <Package
                         className={`w-4 h-4 ${
-                          product.stockQuantity === 0 ||
-                          product.stockQuantity < 10
+                          product.stockQuantity === 0 || isLow
                             ? "text-gray-700"
                             : "text-white"
                         }`}
@@ -431,6 +442,14 @@ const Products = () => {
                               {product.stockQuantity} units
                             </p>
                           </div>
+                          <div>
+                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                              Low stock threshold
+                            </p>
+                            <p className="text-lg font-bold text-gray-900 mt-1">
+                              {threshold} units
+                            </p>
+                          </div>
                         </div>
                       </div>
 
@@ -445,7 +464,7 @@ const Products = () => {
                             <div className="flex items-center gap-2 mb-2">
                               {product.stockQuantity === 0 ? (
                                 <AlertTriangle className="w-5 h-5 text-red-600" />
-                              ) : product.stockQuantity < 10 ? (
+                              ) : isLow ? (
                                 <AlertTriangle className="w-5 h-5 text-amber-600" />
                               ) : (
                                 <Package className="w-5 h-5 text-emerald-600" />
@@ -457,8 +476,8 @@ const Products = () => {
                             <p className="text-sm text-gray-600">
                               {product.stockQuantity === 0
                                 ? "This product is currently out of stock and needs immediate restocking."
-                                : product.stockQuantity < 10
-                                  ? "Stock is running low. Consider restocking soon."
+                                : isLow
+                                  ? `Stock is below your threshold (${threshold} units). Consider restocking soon.`
                                   : "Product is well stocked and ready for sale."}
                             </p>
                           </div>

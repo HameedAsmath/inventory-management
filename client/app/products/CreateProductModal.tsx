@@ -2,7 +2,10 @@
 
 import React, { FormEvent, useState, useRef } from "react";
 import { Plus, X, Package, DollarSign, Boxes, Tag, Edit2 } from "lucide-react";
-import type { Product } from "../state/api";
+import {
+  type Product,
+  DEFAULT_LOW_STOCK_QUANTITY,
+} from "../state/api";
 
 type ProductFormData = {
   name: string;
@@ -10,6 +13,7 @@ type ProductFormData = {
   price2?: number;
   cp?: number;
   stockQuantity: number;
+  lowStockQuantity: number;
   category?: string;
 };
 
@@ -20,6 +24,8 @@ type CreateProductModalProps = {
   onUpdate?: (productId: string, formData: ProductFormData) => void;
   editingProduct?: Product | null;
   existingCategories?: string[];
+  /** e.g. z-[60] when stacking above another z-50 modal */
+  wrapperClassName?: string;
 };
 
 const CreateProductModal = ({
@@ -29,12 +35,16 @@ const CreateProductModal = ({
   onUpdate,
   editingProduct,
   existingCategories = [],
+  wrapperClassName = "z-50",
 }: CreateProductModalProps) => {
   const [name, setName] = useState("");
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
   const [cp, setCp] = useState("");
   const [stockQuantity, setStockQuantity] = useState("");
+  const [lowStockQuantity, setLowStockQuantity] = useState(
+    String(DEFAULT_LOW_STOCK_QUANTITY),
+  );
   const [category, setCategory] = useState("");
   const [categoryInput, setCategoryInput] = useState("");
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
@@ -48,6 +58,7 @@ const CreateProductModal = ({
     setPrice2("");
     setCp("");
     setStockQuantity("");
+    setLowStockQuantity(String(DEFAULT_LOW_STOCK_QUANTITY));
     setCategory("");
     setCategoryInput("");
     setError("");
@@ -68,6 +79,11 @@ const CreateProductModal = ({
       setPrice2(editingProduct.price2 != null ? String(editingProduct.price2) : "");
       setCp(editingProduct.cp != null ? String(editingProduct.cp) : "");
       setStockQuantity(String(editingProduct.stockQuantity));
+      setLowStockQuantity(
+        String(
+          editingProduct.lowStockQuantity ?? DEFAULT_LOW_STOCK_QUANTITY,
+        ),
+      );
       setCategory(editingProduct.category || "");
       setCategoryInput(editingProduct.category || "");
       setError("");
@@ -114,6 +130,10 @@ const CreateProductModal = ({
         setError("Price 2 must be a positive number.");
         return;
       }
+      if (price2Num >= price1Num) {
+        setError("Price 2 must be less than price 1.");
+        return;
+      }
     }
 
     let cpNum: number | undefined;
@@ -123,11 +143,29 @@ const CreateProductModal = ({
         setError("CP must be a non-negative number.");
         return;
       }
+      if (cpNum >= price1Num) {
+        setError("Cost price must be less than price 1.");
+        return;
+      }
+      if (price2Num !== undefined && cpNum >= price2Num) {
+        setError("Cost price must be less than price 2.");
+        return;
+      }
     }
 
-    const stockNum = parseInt(stockQuantity);
+    const stockNum = parseInt(stockQuantity, 10);
     if (!stockQuantity || isNaN(stockNum) || stockNum < 0) {
       setError("Stock quantity must be a non-negative number.");
+      return;
+    }
+
+    const lowStockNum = parseInt(lowStockQuantity, 10);
+    if (
+      !lowStockQuantity.trim() ||
+      isNaN(lowStockNum) ||
+      lowStockNum < 0
+    ) {
+      setError("Low stock quantity must be a non-negative integer.");
       return;
     }
 
@@ -137,6 +175,7 @@ const CreateProductModal = ({
       ...(price2Num !== undefined && { price2: price2Num }),
       ...(cpNum !== undefined && { cp: cpNum }),
       stockQuantity: stockNum,
+      lowStockQuantity: lowStockNum,
       category: category.trim() || undefined,
     };
 
@@ -156,7 +195,7 @@ const CreateProductModal = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className={`fixed inset-0 ${wrapperClassName} overflow-y-auto`}>
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
 
       <div className="flex min-h-full items-start justify-center p-4 pt-10">
@@ -365,6 +404,36 @@ const CreateProductModal = ({
                   required
                 />
               </div>
+
+              {/* LOW STOCK THRESHOLD */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center">
+                    <Boxes className="w-3.5 h-3.5 text-orange-600" />
+                  </div>
+                  <label
+                    htmlFor="lowStockQuantity"
+                    className="text-sm font-semibold text-gray-800"
+                  >
+                    Low stock threshold <span className="text-red-500">*</span>
+                  </label>
+                </div>
+                <input
+                  id="lowStockQuantity"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder={String(DEFAULT_LOW_STOCK_QUANTITY)}
+                  value={lowStockQuantity}
+                  onChange={(e) => setLowStockQuantity(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Alerts when on-hand quantity is below this level (default{" "}
+                  {DEFAULT_LOW_STOCK_QUANTITY}).
+                </p>
+              </div>
             </div>
 
             {/* FOOTER */}
@@ -380,7 +449,10 @@ const CreateProductModal = ({
                 <button
                   type="submit"
                   disabled={
-                    !name.trim() || !price1 || !stockQuantity
+                    !name.trim() ||
+                    !price1 ||
+                    !stockQuantity ||
+                    !lowStockQuantity.trim()
                   }
                   className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
                 >

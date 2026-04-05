@@ -1,10 +1,13 @@
 "use client";
 
-import React, { FormEvent, useState, useEffect } from "react";
+import React, { FormEvent, useState, useEffect, useMemo } from "react";
 import {
   useGetCustomersQuery,
   useGetProductsQuery,
+  useCreateProductMutation,
+  useUpdateProductMutation,
   type Product,
+  lowStockThreshold,
 } from "../state/api";
 import {
   Plus,
@@ -15,8 +18,11 @@ import {
   User,
   Package,
   CheckCircle2,
+  Edit2,
 } from "lucide-react";
 import { v4 } from "uuid";
+import { toast } from "sonner";
+import CreateProductModal from "../products/CreateProductModal";
 
 type BillingItemInput = {
   productId: string;
@@ -78,9 +84,27 @@ const CreateBillingModal = ({
   const [pnfEnabled, setPnfEnabled] = useState(false);
   const [pnfAmount, setPnfAmount] = useState("");
   const [error, setError] = useState("");
+  const [productFormOpen, setProductFormOpen] = useState(false);
+  const [productBeingEdited, setProductBeingEdited] = useState<Product | null>(
+    null,
+  );
 
   const { data: customers } = useGetCustomersQuery(customerSearch);
   const { data: products } = useGetProductsQuery({ search: productSearch });
+  const { data: catalogProducts } = useGetProductsQuery(undefined, {
+    skip: !isOpen,
+  });
+  const [createProduct] = useCreateProductMutation();
+  const [updateProduct] = useUpdateProductMutation();
+
+  const productCategories = useMemo(() => {
+    if (!catalogProducts) return [];
+    const set = new Set<string>();
+    catalogProducts.forEach((p) => {
+      if (p.category?.trim()) set.add(p.category.trim());
+    });
+    return Array.from(set).sort();
+  }, [catalogProducts]);
 
   const itemsTotal = items.reduce((sum, item) => {
     const gross = item.price * item.quantity;
@@ -105,21 +129,21 @@ const CreateBillingModal = ({
     setCustomerSearch("");
   };
 
-  const handleAddProduct = (product: Product) => {
+  const handleAddProduct = (product: Product): boolean => {
     if (items.find((item) => item.productId === product.productId)) {
       setError(
         `${product.name} is already added. Adjust the quantity instead.`,
       );
       setShowProductDropdown(false);
       setProductSearch("");
-      return;
+      return false;
     }
 
     if (product.stockQuantity <= 0) {
       setError(`${product.name} is out of stock.`);
       setShowProductDropdown(false);
       setProductSearch("");
-      return;
+      return false;
     }
 
     setItems([
@@ -139,6 +163,7 @@ const CreateBillingModal = ({
     setProductSearch("");
     setShowProductDropdown(false);
     setError("");
+    return true;
   };
 
   const handleRemoveItem = (productId: string) => {
@@ -232,6 +257,8 @@ const CreateBillingModal = ({
     setProductSearch("");
     setPnfEnabled(false);
     setPnfAmount("");
+    setProductFormOpen(false);
+    setProductBeingEdited(null);
   };
 
   useEffect(() => {
@@ -243,6 +270,88 @@ const CreateBillingModal = ({
   const handleClose = () => {
     resetForm();
     onClose();
+  };
+
+  const handleCloseProductForm = () => {
+    setProductFormOpen(false);
+    setProductBeingEdited(null);
+  };
+
+  const syncBillingLineFromProduct = (updated: Product) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.productId !== updated.productId) return item;
+        const price2 = updated.price2 ?? null;
+        const nextPrice =
+          item.selectedPriceType === "price1"
+            ? updated.price1
+            : (price2 ?? updated.price1);
+        return {
+          ...item,
+          productName: updated.name,
+          price1: updated.price1,
+          price2,
+          price: nextPrice,
+          maxStock: updated.stockQuantity,
+          quantity: Math.max(
+            1,
+            Math.min(item.quantity, Math.max(updated.stockQuantity, 1)),
+          ),
+        };
+      }),
+    );
+  };
+
+  const handleCreateProductFromModal = async (formData: {
+    name: string;
+    price1: number;
+    price2?: number;
+    cp?: number;
+    stockQuantity: number;
+    lowStockQuantity: number;
+    category?: string;
+  }) => {
+    try {
+      const created = await createProduct(formData).unwrap();
+      toast.success("Product created");
+      if (handleAddProduct(created)) {
+        handleCloseProductForm();
+      }
+    } catch {
+      /* toast from global handler */
+    }
+  };
+
+  const handleUpdateProductFromModal = async (
+    productId: string,
+    formData: {
+      name: string;
+      price1: number;
+      price2?: number;
+      cp?: number;
+      stockQuantity: number;
+      lowStockQuantity: number;
+      category?: string;
+    },
+  ) => {
+    try {
+      const updated = await updateProduct({ productId, data: formData }).unwrap();
+      toast.success("Product updated");
+      syncBillingLineFromProduct(updated);
+      handleCloseProductForm();
+    } catch {
+      /* toast from global handler */
+    }
+  };
+
+  const handleEditLineProduct = (productId: string) => {
+    const p = catalogProducts?.find((x) => x.productId === productId);
+    if (!p) {
+      toast.error("Product could not be loaded. Try again in a moment.");
+      return;
+    }
+    setProductBeingEdited(p);
+    setProductFormOpen(true);
   };
 
   if (!isOpen) return null;
@@ -384,22 +493,23 @@ const CreateBillingModal = ({
                 </div>
 
                 {/* SEARCH PRODUCTS */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search and add products..."
-                    value={productSearch}
-                    onChange={(e) => {
-                      setProductSearch(e.target.value);
-                      setShowProductDropdown(true);
-                    }}
-                    onFocus={() => setShowProductDropdown(true)}
-                    onBlur={() =>
-                      setTimeout(() => setShowProductDropdown(false), 200)
-                    }
-                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  />
+                <div className="flex gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search and add products..."
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setShowProductDropdown(true);
+                      }}
+                      onFocus={() => setShowProductDropdown(true)}
+                      onBlur={() =>
+                        setTimeout(() => setShowProductDropdown(false), 200)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    />
                   {showProductDropdown &&
                     productSearch &&
                     products &&
@@ -409,6 +519,10 @@ const CreateBillingModal = ({
                           const alreadyAdded = items.some(
                             (i) => i.productId === product.productId,
                           );
+                          const lowTh = lowStockThreshold(product);
+                          const isLowStock =
+                            product.stockQuantity > 0 &&
+                            product.stockQuantity < lowTh;
                           return (
                             <button
                               key={product.productId}
@@ -445,20 +559,34 @@ const CreateBillingModal = ({
                                 className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                                   product.stockQuantity <= 0
                                     ? "bg-red-50 text-red-600"
-                                    : product.stockQuantity <= 5
+                                    : isLowStock
                                       ? "bg-amber-50 text-amber-600"
                                       : "bg-emerald-50 text-emerald-600"
                                 }`}
                               >
                                 {product.stockQuantity <= 0
                                   ? "Out of stock"
-                                  : `${product.stockQuantity} in stock`}
+                                  : isLowStock
+                                    ? `Low (${product.stockQuantity} < ${lowTh})`
+                                    : `${product.stockQuantity} in stock`}
                               </span>
                             </button>
                           );
                         })}
                       </div>
                     )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductBeingEdited(null);
+                      setProductFormOpen(true);
+                    }}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    New product
+                  </button>
                 </div>
 
                 {/* ITEMS TABLE */}
@@ -482,7 +610,9 @@ const CreateBillingModal = ({
                           <th className="text-right px-4 py-2.5 text-gray-600 font-medium text-xs uppercase tracking-wider">
                             Subtotal
                           </th>
-                          <th className="w-10 px-2 py-2.5"></th>
+                          <th className="w-20 px-2 py-2.5 text-center text-gray-600 font-medium text-xs uppercase tracking-wider">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -616,13 +746,28 @@ const CreateBillingModal = ({
                               })()}
                             </td>
                             <td className="px-2 py-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveItem(item.productId)}
-                                className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="inline-flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleEditLineProduct(item.productId)
+                                  }
+                                  className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                  title="Edit product"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemoveItem(item.productId)
+                                  }
+                                  className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Remove from bill"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -714,6 +859,16 @@ const CreateBillingModal = ({
           </form>
         </div>
       </div>
+
+      <CreateProductModal
+        isOpen={productFormOpen}
+        onClose={handleCloseProductForm}
+        onCreate={handleCreateProductFromModal}
+        onUpdate={handleUpdateProductFromModal}
+        editingProduct={productBeingEdited}
+        existingCategories={productCategories}
+        wrapperClassName="z-[60]"
+      />
     </div>
   );
 };

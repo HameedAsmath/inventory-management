@@ -106,6 +106,9 @@ const CustomerBillsModal = ({
 
   const summaryTotal = filteredBills.reduce((s, b) => s + b.totalAmount, 0);
   const summaryPaid = filteredPayments.reduce((s, p) => s + p.amount, 0);
+  // Match server recalculateCustomerBalances: same formula on filtered rows as on full ledger
+  const summaryOutstanding = Math.max(0, summaryTotal - summaryPaid);
+  const summaryCredit = Math.max(0, summaryPaid - summaryTotal);
 
   const clearFilters = () => {
     setDateFrom("");
@@ -257,7 +260,7 @@ const CustomerBillsModal = ({
                   Outstanding
                 </p>
                 <p className="text-lg font-bold text-amber-800 mt-0.5">
-                  ₹{(customerData.outstanding || 0).toFixed(2)}
+                  ₹{summaryOutstanding.toFixed(2)}
                 </p>
               </div>
               <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-center">
@@ -265,7 +268,7 @@ const CustomerBillsModal = ({
                   Credit
                 </p>
                 <p className="text-lg font-bold text-indigo-800 mt-0.5">
-                  ₹{(customerData.credit || 0).toFixed(2)}
+                  ₹{summaryCredit.toFixed(2)}
                 </p>
               </div>
             </div>
