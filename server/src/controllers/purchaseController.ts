@@ -166,6 +166,209 @@ export const getPurchaseById = async (req: Request, res: Response) => {
   }
 };
 
+export const updatePurchase = async (req: Request, res: Response) => {
+  try {
+    const purchaseId = String(req.params.purchaseId);
+    const { purchaseDate, notes, items, totalAmount } = req.body as {
+      purchaseDate?: string;
+      notes?: string;
+      items?: PurchaseItemInput[];
+      totalAmount?: number;
+    };
+
+    if (!purchaseDate) {
+      return res.status(400).json({ message: "purchaseDate is required" });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "At least one purchase item is required" });
+    }
+
+    for (const item of items) {
+      if (!item.productId) {
+        return res.status(400).json({ message: "productId is required for all items" });
+      }
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        return res
+          .status(400)
+          .json({ message: "quantity must be a positive number for all items" });
+      }
+      if (!Number.isFinite(item.costPrice) || item.costPrice <= 0) {
+        return res
+          .status(400)
+          .json({ message: "costPrice must be a positive number for all items" });
+      }
+    }
+
+    const computedTotal = items.reduce(
+      (sum, item) => sum + Number(item.quantity) * Number(item.costPrice),
+      0,
+    );
+    if (!Number.isFinite(totalAmount) || Math.abs(computedTotal - Number(totalAmount)) > 0.01) {
+      return res.status(400).json({
+        message:
+          "Provided totalAmount does not match the computed total from line items",
+      });
+    }
+
+    const uniqueProductIds = [...new Set(items.map((item) => item.productId))];
+
+    const purchase = await prisma.$transaction(async (tx) => {
+      const existing = await tx.purchase.findUnique({
+        where: { purchaseId },
+        include: { purchaseItems: true },
+      });
+
+      if (!existing) {
+        throw new Error("PURCHASE_NOT_FOUND");
+      }
+
+      for (const line of existing.purchaseItems) {
+        const product = await tx.products.findUnique({
+          where: { productId: line.productId },
+        });
+        if (!product) {
+          throw new Error("PRODUCT_MISSING");
+        }
+        if (product.stockQuantity < line.quantity) {
+          throw new Error(
+            `INSUFFICIENT_STOCK_TO_REVERT|${product.name}|${product.stockQuantity}|${line.quantity}`,
+          );
+        }
+        await tx.products.update({
+          where: { productId: line.productId },
+          data: { stockQuantity: { decrement: line.quantity } },
+        });
+      }
+
+      await tx.purchaseItem.deleteMany({ where: { purchaseId } });
+
+      const products = await tx.products.findMany({
+        where: { productId: { in: uniqueProductIds } },
+      });
+      if (products.length !== uniqueProductIds.length) {
+        throw new Error("PRODUCT_NOT_FOUND");
+      }
+
+      for (const item of items) {
+        const quantity = Number(item.quantity);
+        const costPrice = Number(item.costPrice);
+        const totalCost = quantity * costPrice;
+
+        await tx.purchaseItem.create({
+          data: {
+            purchaseId,
+            productId: item.productId,
+            quantity,
+            costPrice,
+            totalCost,
+          },
+        });
+
+        await tx.products.update({
+          where: { productId: item.productId },
+          data: {
+            stockQuantity: { increment: quantity },
+            cp: costPrice,
+          },
+        });
+      }
+
+      await tx.purchase.update({
+        where: { purchaseId },
+        data: {
+          purchaseDate: new Date(purchaseDate),
+          notes: notes != null && String(notes).trim() ? String(notes).trim() : null,
+          totalAmount: computedTotal,
+        },
+      });
+
+      return tx.purchase.findUnique({
+        where: { purchaseId },
+        include: {
+          supplier: true,
+          purchaseItems: { include: { product: true } },
+        },
+      });
+    });
+
+    res.json(purchase);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "PURCHASE_NOT_FOUND") {
+      return res.status(404).json({ message: "Purchase not found" });
+    }
+    if (msg === "PRODUCT_NOT_FOUND" || msg === "PRODUCT_MISSING") {
+      return res.status(400).json({ message: "One or more products were not found" });
+    }
+    if (msg.startsWith("INSUFFICIENT_STOCK_TO_REVERT|")) {
+      const [, name, avail, req] = msg.split("|");
+      return res.status(400).json({
+        message: `Cannot update purchase: current stock for ${name} is ${avail}, but this purchase added ${req} units. Sell or adjust stock before reducing this purchase.`,
+      });
+    }
+    console.error("Error updating purchase:", error);
+    res.status(500).json({ message: "Error updating purchase" });
+  }
+};
+
+export const deletePurchase = async (req: Request, res: Response) => {
+  try {
+    const purchaseId = String(req.params.purchaseId);
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.purchase.findUnique({
+        where: { purchaseId },
+        include: { purchaseItems: true },
+      });
+
+      if (!existing) {
+        throw new Error("PURCHASE_NOT_FOUND");
+      }
+
+      for (const line of existing.purchaseItems) {
+        const product = await tx.products.findUnique({
+          where: { productId: line.productId },
+        });
+        if (!product) {
+          throw new Error("PRODUCT_MISSING");
+        }
+        if (product.stockQuantity < line.quantity) {
+          throw new Error(
+            `INSUFFICIENT_STOCK_TO_REVERT|${product.name}|${product.stockQuantity}|${line.quantity}`,
+          );
+        }
+        await tx.products.update({
+          where: { productId: line.productId },
+          data: { stockQuantity: { decrement: line.quantity } },
+        });
+      }
+
+      await tx.purchaseItem.deleteMany({ where: { purchaseId } });
+      await tx.purchase.delete({ where: { purchaseId } });
+    });
+
+    res.json({ message: "Purchase deleted", purchaseId });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "PURCHASE_NOT_FOUND") {
+      return res.status(404).json({ message: "Purchase not found" });
+    }
+    if (msg === "PRODUCT_MISSING") {
+      return res.status(400).json({ message: "One or more products were not found" });
+    }
+    if (msg.startsWith("INSUFFICIENT_STOCK_TO_REVERT|")) {
+      const [, name, avail, req] = msg.split("|");
+      return res.status(400).json({
+        message: `Cannot delete purchase: current stock for ${name} is ${avail}, but this purchase added ${req} units. Reduce stock or edit the purchase instead.`,
+      });
+    }
+    console.error("Error deleting purchase:", error);
+    res.status(500).json({ message: "Error deleting purchase" });
+  }
+};
+
 export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
   try {
     const now = new Date();

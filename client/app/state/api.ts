@@ -174,6 +174,17 @@ export interface CreatePurchaseRequest {
   }>;
 }
 
+export interface UpdatePurchaseRequest {
+  purchaseDate: string;
+  notes?: string;
+  totalAmount: number;
+  items: Array<{
+    productId: string;
+    quantity: number;
+    costPrice: number;
+  }>;
+}
+
 export interface PurchaseAnalytics {
   totalPurchasesToday: number;
   todayPurchaseCount: number;
@@ -544,6 +555,27 @@ export const api = createApi({
       }),
       invalidatesTags: ["Purchases", "Products", "PurchaseAnalytics"],
     }),
+    updatePurchase: build.mutation<
+      Purchase,
+      { purchaseId: string; data: UpdatePurchaseRequest }
+    >({
+      query: ({ purchaseId, data }) => ({
+        url: `/purchases/${purchaseId}`,
+        method: "PUT",
+        body: data,
+      }),
+      invalidatesTags: ["Purchases", "Products", "PurchaseAnalytics"],
+    }),
+    deletePurchase: build.mutation<
+      { message: string; purchaseId: string },
+      string
+    >({
+      query: (purchaseId) => ({
+        url: `/purchases/${purchaseId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Purchases", "Products", "PurchaseAnalytics"],
+    }),
     getPurchaseAnalytics: build.query<PurchaseAnalytics, void>({
       query: () => "/purchases/analytics",
       providesTags: ["PurchaseAnalytics", "Products"],
@@ -663,6 +695,8 @@ export const {
   useDeleteSupplierMutation,
   useGetPurchasesQuery,
   useCreatePurchaseMutation,
+  useUpdatePurchaseMutation,
+  useDeletePurchaseMutation,
   useGetPurchaseAnalyticsQuery,
   useGetBillingsQuery,
   useGetBillingByIdQuery,

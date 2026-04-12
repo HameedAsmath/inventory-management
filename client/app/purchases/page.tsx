@@ -4,16 +4,19 @@ import Header from "@/app/(components)/Header";
 import {
   type CreatePurchaseRequest,
   type Purchase,
+  type UpdatePurchaseRequest,
   useCreatePurchaseMutation,
+  useDeletePurchaseMutation,
   useGetProductsQuery,
   useGetPurchasesQuery,
-  useGetSuppliersQuery,
+  useUpdatePurchaseMutation,
 } from "@/app/state/api";
 import {
   Calendar,
   ChevronDown,
   ChevronUp,
   Clock,
+  Edit2,
   FileText,
   Filter,
   Loader2,
@@ -21,6 +24,7 @@ import {
   Plus,
   ShoppingCart,
   Store,
+  Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -35,6 +39,7 @@ const formatDate = (value: string) =>
 
 const PurchasesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
   const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null);
   const [selectedSupplierName, setSelectedSupplierName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -43,6 +48,14 @@ const PurchasesPage = () => {
   const { data: products = [] } = useGetProductsQuery();
   const { data: purchases = [], isLoading: purchasesLoading } = useGetPurchasesQuery();
   const [createPurchase, { isLoading: isSaving }] = useCreatePurchaseMutation();
+  const [updatePurchase] = useUpdatePurchaseMutation();
+  const [deletePurchase, { isLoading: isDeletingPurchase }] =
+    useDeletePurchaseMutation();
+
+  const openCreateModal = () => {
+    setEditingPurchase(null);
+    setIsModalOpen(true);
+  };
 
   const handleCreatePurchase = async (purchaseData: CreatePurchaseData) => {
     try {
@@ -51,6 +64,34 @@ const PurchasesPage = () => {
       setIsModalOpen(false);
     } catch {
       // handled by global toast middleware
+    }
+  };
+
+  const handleUpdatePurchase = async (
+    purchaseId: string,
+    data: UpdatePurchaseRequest,
+  ) => {
+    await updatePurchase({ purchaseId, data }).unwrap();
+    toast.success("Purchase updated successfully");
+  };
+
+  const handleDeletePurchase = async (purchase: Purchase) => {
+    if (isDeletingPurchase) return;
+    if (
+      !window.confirm(
+        `Delete this purchase from ${purchase.supplier?.name ?? "supplier"}? Quantities from this purchase will be removed from stock.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deletePurchase(purchase.purchaseId).unwrap();
+      toast.success("Purchase deleted");
+      setExpandedPurchase((prev) =>
+        prev === purchase.purchaseId ? null : prev,
+      );
+    } catch {
+      /* Error toast: RTK mutation middleware */
     }
   };
 
@@ -108,7 +149,7 @@ const PurchasesPage = () => {
         </div>
         <button
           className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-5 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           disabled={isSaving}
         >
           {isSaving ? (
@@ -251,7 +292,7 @@ const PurchasesPage = () => {
             {!hasActiveFilters && (
               <button
                 className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition-colors"
-                onClick={() => setIsModalOpen(true)}
+                onClick={openCreateModal}
               >
                 <Plus className="w-4 h-4" />
                 Create Purchase
@@ -401,6 +442,29 @@ const PurchasesPage = () => {
                         </div>
                       </div>
                     </div>
+
+                    <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPurchase(purchase);
+                          setIsModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Edit purchase
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePurchase(purchase)}
+                        disabled={isDeletingPurchase}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete purchase
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -411,8 +475,13 @@ const PurchasesPage = () => {
 
       <CreatePurchaseModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        editingPurchase={editingPurchase}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingPurchase(null);
+        }}
         onCreate={handleCreatePurchase}
+        onUpdate={handleUpdatePurchase}
       />
     </div>
   );

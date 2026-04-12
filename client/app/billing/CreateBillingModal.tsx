@@ -73,6 +73,7 @@ function isValidBillQuantity(qtyInput: string, maxStock: number): boolean {
   if (t === "") return false;
   const n = parseInt(t, 10);
   if (isNaN(n) || n < 1) return false;
+  if (maxStock < 1) return false;
   if (n > maxStock) return false;
   return true;
 }
@@ -283,9 +284,15 @@ const CreateBillingModal = ({
   const handleQuantityInputChange = (productId: string, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
     setItems(
-      items.map((item) =>
-        item.productId === productId ? { ...item, quantityInput: value } : item,
-      ),
+      items.map((item) => {
+        if (item.productId !== productId) return item;
+        if (value === "") return { ...item, quantityInput: "" };
+        const n = parseInt(value, 10);
+        if (isNaN(n)) return { ...item, quantityInput: value };
+        const limit = Math.max(item.maxStock, 0);
+        const capped = Math.min(n, limit);
+        return { ...item, quantityInput: String(capped) };
+      }),
     );
   };
 
@@ -318,7 +325,7 @@ const CreateBillingModal = ({
     for (const item of items) {
       if (!isValidBillQuantity(item.quantityInput, item.maxStock)) {
         setError(
-          `Enter a valid quantity (1–${item.maxStock}) for ${item.productName}.`,
+          `Quantity for ${item.productName} must be between 1 and ${item.maxStock} (available stock).`,
         );
         return;
       }

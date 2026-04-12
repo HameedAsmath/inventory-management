@@ -14,6 +14,8 @@ import {
   useCreateProductMutation,
   useUpdateProductMutation,
   type Product,
+  type Purchase,
+  type UpdatePurchaseRequest,
 } from "../state/api";
 import {
   Calendar,
@@ -33,10 +35,35 @@ import CreateProductModal from "../products/CreateProductModal";
 type PurchaseItemInput = {
   productId: string;
   productName: string;
-  quantity: number;
+  quantityInput: string;
   costPrice: number;
+  /** Cap for quantity (same rule as billing: on-hand stock when in stock). */
+  maxStock: number;
   stockQuantity: number;
 };
+
+function purchaseLineMaxStock(stockQuantity: number): number {
+  return stockQuantity > 0 ? stockQuantity : Number.MAX_SAFE_INTEGER;
+}
+
+/** Qty used for line totals while typing: empty / invalid → 0; capped at maxStock. */
+function quantityForPricing(qtyInput: string, maxStock: number): number {
+  const t = qtyInput.trim();
+  if (t === "") return 0;
+  const n = parseInt(t, 10);
+  if (isNaN(n) || n < 0) return 0;
+  return Math.min(n, maxStock);
+}
+
+function isValidBillQuantity(qtyInput: string, maxStock: number): boolean {
+  const t = qtyInput.trim();
+  if (t === "") return false;
+  const n = parseInt(t, 10);
+  if (isNaN(n) || n < 1) return false;
+  if (maxStock < 1) return false;
+  if (n > maxStock) return false;
+  return true;
+}
 
 export type CreatePurchaseData = {
   supplierId: string;
@@ -53,13 +80,21 @@ type CreatePurchaseModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: CreatePurchaseData) => void;
+  editingPurchase?: Purchase | null;
+  onUpdate?: (
+    purchaseId: string,
+    data: UpdatePurchaseRequest,
+  ) => Promise<void>;
 };
 
 const CreatePurchaseModal = ({
   isOpen,
   onClose,
   onCreate,
+  editingPurchase = null,
+  onUpdate,
 }: CreatePurchaseModalProps) => {
+  const isEditMode = Boolean(editingPurchase?.purchaseId);
   const [supplierId, setSupplierId] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [selectedSupplierName, setSelectedSupplierName] = useState("");
@@ -134,7 +169,22 @@ const CreatePurchaseModal = ({
   }, [activeProductDropdownIndex]);
 
   const totalAmount = useMemo(
-    () => items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0),
+    () =>
+      items.reduce(
+        (sum, item) =>
+          sum +
+          quantityForPricing(item.quantityInput, item.maxStock) * item.costPrice,
+        0,
+      ),
+    [items],
+  );
+
+  const allLineQuantitiesValid = useMemo(
+    () =>
+      items.length > 0 &&
+      items.every((item) =>
+        isValidBillQuantity(item.quantityInput, item.maxStock),
+      ),
     [items],
   );
 
@@ -165,8 +215,9 @@ const CreatePurchaseModal = ({
       {
         productId: product.productId,
         productName: product.name,
-        quantity: 1,
+        quantityInput: "1",
         costPrice: product.cp ?? 0,
+        maxStock: purchaseLineMaxStock(product.stockQuantity),
         stockQuantity: product.stockQuantity,
       },
     ]);
@@ -180,13 +231,31 @@ const CreatePurchaseModal = ({
     setItems((prev) => prev.filter((item) => item.productId !== productId));
   };
 
-  const handleQuantityChange = (productId: string, quantity: number) => {
+  const handleQuantityInputChange = (productId: string, value: string) => {
+    if (value !== "" && !/^\d+$/.test(value)) return;
     setItems((prev) =>
-      prev.map((item) =>
-        item.productId === productId
-          ? { ...item, quantity: Math.max(1, quantity) }
-          : item,
-      ),
+      prev.map((item) => {
+        if (item.productId !== productId) return item;
+        if (value === "") return { ...item, quantityInput: "" };
+        const n = parseInt(value, 10);
+        if (isNaN(n)) return { ...item, quantityInput: value };
+        const limit = Math.max(item.maxStock, 0);
+        const capped = Math.min(n, limit);
+        return { ...item, quantityInput: String(capped) };
+      }),
+    );
+  };
+
+  const handleQuantityStep = (productId: string, delta: number) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.productId !== productId) return item;
+        const t = item.quantityInput.trim();
+        const cur = t === "" ? 0 : parseInt(t, 10);
+        const base = t === "" || isNaN(cur) ? 0 : cur;
+        const next = Math.max(0, Math.min(base + delta, item.maxStock));
+        return { ...item, quantityInput: String(next) };
+      }),
     );
   };
 
@@ -200,7 +269,7 @@ const CreatePurchaseModal = ({
     );
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
@@ -221,15 +290,47 @@ const CreatePurchaseModal = ({
       return;
     }
 
+    for (const item of items) {
+      if (!isValidBillQuantity(item.quantityInput, item.maxStock)) {
+        if (item.maxStock === Number.MAX_SAFE_INTEGER) {
+          setError(`Enter a valid quantity (at least 1) for ${item.productName}.`);
+        } else {
+          setError(
+            `Quantity for ${item.productName} must be between 1 and ${item.maxStock} (available stock).`,
+          );
+        }
+        return;
+      }
+    }
+
+    const lineItems = items.map((item) => ({
+      productId: item.productId,
+      quantity: parseInt(item.quantityInput.trim(), 10),
+      costPrice: item.costPrice,
+    }));
+
+    if (isEditMode && editingPurchase && onUpdate) {
+      const updatePayload: UpdatePurchaseRequest = {
+        purchaseDate: new Date(purchaseDate).toISOString(),
+        notes: notes.trim() || undefined,
+        totalAmount,
+        items: lineItems,
+      };
+      try {
+        await onUpdate(editingPurchase.purchaseId, updatePayload);
+        resetForm();
+        onClose();
+      } catch {
+        /* error toast from global handler */
+      }
+      return;
+    }
+
     const payload: CreatePurchaseData = {
       supplierId,
       purchaseDate: new Date(purchaseDate).toISOString(),
       notes: notes.trim() || undefined,
-      items: items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        costPrice: item.costPrice,
-      })),
+      items: lineItems,
     };
 
     onCreate(payload);
@@ -253,10 +354,40 @@ const CreatePurchaseModal = ({
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    if (editingPurchase) {
+      setSupplierId(editingPurchase.supplier.supplierId);
+      setSelectedSupplierName(editingPurchase.supplier.name);
+      setSupplierSearch(editingPurchase.supplier.name);
+      const d = new Date(editingPurchase.purchaseDate);
+      setPurchaseDate(d.toISOString().split("T")[0]);
+      setNotes(editingPurchase.notes?.trim() ? editingPurchase.notes : "");
+      setItems(
+        editingPurchase.purchaseItems.map((line) => {
+          const p = line.product;
+          const sq = p.stockQuantity ?? 0;
+          const maxStock = purchaseLineMaxStock(sq + line.quantity);
+          return {
+            productId: line.productId,
+            productName: p.name,
+            quantityInput: String(line.quantity),
+            costPrice: line.costPrice,
+            maxStock,
+            stockQuantity: sq,
+          };
+        }),
+      );
+      setError("");
+      setProductSearch("");
+      setProductHighlightIndex(-1);
+      setShowProductDropdown(false);
+      setProductFormOpen(false);
+      setProductBeingEdited(null);
+    } else {
       resetForm();
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: reset when switching create/edit by purchaseId only
+  }, [isOpen, editingPurchase?.purchaseId]);
 
   const handleClose = () => {
     resetForm();
@@ -272,10 +403,23 @@ const CreatePurchaseModal = ({
     setItems((prev) =>
       prev.map((item) => {
         if (item.productId !== updated.productId) return item;
+        const t = item.quantityInput.trim();
+        const lineQty = t === "" ? 0 : parseInt(t, 10);
+        const safeLine = isNaN(lineQty) ? 0 : lineQty;
+        const base = updated.stockQuantity ?? 0;
+        const maxStock = purchaseLineMaxStock(
+          isEditMode ? base + safeLine : base,
+        );
+        const prevQty = parseInt(item.quantityInput.trim(), 10);
+        const safePrev =
+          item.quantityInput.trim() === "" || isNaN(prevQty) ? 1 : prevQty;
+        const nextQty = Math.max(1, Math.min(safePrev, maxStock));
         return {
           ...item,
           productName: updated.name,
           stockQuantity: updated.stockQuantity,
+          maxStock,
+          quantityInput: String(nextQty),
           costPrice:
             updated.cp != null && updated.cp > 0
               ? updated.cp
@@ -383,9 +527,13 @@ const CreatePurchaseModal = ({
         <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Create Purchase</h2>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {isEditMode ? "Edit Purchase" : "Create Purchase"}
+              </h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Select supplier and add purchased products
+                {isEditMode
+                  ? `${editingPurchase?.purchaseId} — supplier cannot be changed`
+                  : "Select supplier and add purchased products"}
               </p>
             </div>
             <button
@@ -424,13 +572,15 @@ const CreatePurchaseModal = ({
                         <p className="text-xs text-gray-500 font-mono">{supplierId}</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleClearSupplier}
-                      className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-blue-100 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    {!isEditMode && (
+                      <button
+                        type="button"
+                        onClick={handleClearSupplier}
+                        className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-blue-100 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="relative">
@@ -654,23 +804,23 @@ const CreatePurchaseModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityChange(
-                                      item.productId,
-                                      item.quantity - 1,
-                                    )
+                                    handleQuantityStep(item.productId, -1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
                                   -
                                 </button>
                                 <input
-                                  type="number"
-                                  min={1}
-                                  value={item.quantity}
+                                  type="text"
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  maxLength={8}
+                                  aria-label="Quantity"
+                                  value={item.quantityInput}
                                   onChange={(e) =>
-                                    handleQuantityChange(
+                                    handleQuantityInputChange(
                                       item.productId,
-                                      parseInt(e.target.value) || 1,
+                                      e.target.value,
                                     )
                                   }
                                   className="w-12 py-1 text-center text-sm border-x border-gray-200 focus:outline-none"
@@ -678,10 +828,7 @@ const CreatePurchaseModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityChange(
-                                      item.productId,
-                                      item.quantity + 1,
-                                    )
+                                    handleQuantityStep(item.productId, 1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
@@ -705,7 +852,13 @@ const CreatePurchaseModal = ({
                               />
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                              ₹{(item.quantity * item.costPrice).toFixed(2)}
+                              ₹
+                              {(
+                                quantityForPricing(
+                                  item.quantityInput,
+                                  item.maxStock,
+                                ) * item.costPrice
+                              ).toFixed(2)}
                             </td>
                             <td className="px-2 py-3 text-center">
                               <div className="inline-flex items-center gap-0.5">
@@ -768,11 +921,15 @@ const CreatePurchaseModal = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={!supplierId || items.length === 0}
+                    disabled={
+                      !supplierId ||
+                      items.length === 0 ||
+                      !allLineQuantitiesValid
+                    }
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="w-4 h-4" />
-                    Create Purchase
+                    {isEditMode ? "Save changes" : "Create Purchase"}
                   </button>
                 </div>
               </div>
