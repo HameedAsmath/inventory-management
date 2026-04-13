@@ -96,10 +96,7 @@ type CreateBillingModalProps = {
   onClose: () => void;
   onCreate: (data: CreateBillingData) => void;
   editingBilling?: Billing | null;
-  onUpdate?: (
-    billingId: string,
-    data: UpdateBillingRequest,
-  ) => Promise<void>;
+  onUpdate?: (billingId: string, data: UpdateBillingRequest) => Promise<void>;
 };
 
 const CreateBillingModal = ({
@@ -144,30 +141,51 @@ const CreateBillingModal = ({
     return Array.from(set).sort();
   }, [catalogProducts]);
 
+  const searchedProducts = useMemo(() => {
+    if (!products) return [];
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return products;
+    const scoreProduct = (p: Product): number => {
+      const name = p.name.toLowerCase();
+      const serial = (p.serialNumber ?? "").toLowerCase();
+
+      if (serial === term) return 0;
+      if (serial.startsWith(term)) return 1;
+      if (serial.includes(term)) return 2;
+      if (name === term) return 3;
+      if (name.startsWith(term)) return 4;
+      if (name.includes(term)) return 5;
+      return 99;
+    };
+
+    return products
+      .map((p, idx) => ({ p, idx, score: scoreProduct(p) }))
+      .filter((x) => x.score < 99)
+      .sort((a, b) => a.score - b.score || a.idx - b.idx)
+      .map((x) => x.p);
+  }, [products, productSearch]);
+
   /** Indices in `products` that can be chosen from the keyboard (in stock, not on bill). */
   const billingSelectableProductIndices = useMemo(() => {
-    if (!products?.length) return [];
+    if (!searchedProducts?.length) return [];
     const out: number[] = [];
-    products.forEach((p, i) => {
+    searchedProducts.forEach((p, i) => {
       if (items.some((x) => x.productId === p.productId)) return;
       if (p.stockQuantity <= 0) return;
       out.push(i);
     });
     return out;
-  }, [products, items]);
+  }, [searchedProducts, items]);
 
   const productDropdownOpen =
     showProductDropdown &&
     Boolean(productSearch?.trim()) &&
-    Boolean(products?.length);
+    Boolean(searchedProducts?.length);
 
   const activeProductDropdownIndex = useMemo(() => {
     const indices = billingSelectableProductIndices;
     if (!indices.length) return -1;
-    if (
-      productHighlightIndex >= 0 &&
-      indices.includes(productHighlightIndex)
-    ) {
+    if (productHighlightIndex >= 0 && indices.includes(productHighlightIndex)) {
       return productHighlightIndex;
     }
     return indices[0];
@@ -393,16 +411,13 @@ const CreateBillingModal = ({
       setCustomerSearch(editingBilling.customer.name);
       setPnfEnabled(editingBilling.pnfCharges > 0);
       setPnfAmount(
-        editingBilling.pnfCharges > 0
-          ? String(editingBilling.pnfCharges)
-          : "",
+        editingBilling.pnfCharges > 0 ? String(editingBilling.pnfCharges) : "",
       );
       setItems(
         editingBilling.BillingItem.map((line) => {
           const p = line.product;
           const price2 = p.price2 ?? null;
-          const isP2 =
-            price2 != null && Math.abs(line.price - price2) < 0.01;
+          const isP2 = price2 != null && Math.abs(line.price - price2) < 0.01;
           const selectedPriceType: "price1" | "price2" = isP2
             ? "price2"
             : "price1";
@@ -478,6 +493,7 @@ const CreateBillingModal = ({
   };
 
   const handleCreateProductFromModal = async (formData: {
+    serialNumber?: string;
     name: string;
     price1: number;
     price2?: number;
@@ -500,6 +516,7 @@ const CreateBillingModal = ({
   const handleUpdateProductFromModal = async (
     productId: string,
     formData: {
+      serialNumber?: string;
       name: string;
       price1: number;
       price2?: number;
@@ -532,13 +549,15 @@ const CreateBillingModal = ({
     setProductFormOpen(true);
   };
 
-  const handleProductSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+  const handleProductSearchKeyDown = (
+    e: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
     if (e.key === "Escape") {
       e.preventDefault();
       setShowProductDropdown(false);
       return;
     }
-    if (!productDropdownOpen || !products?.length) return;
+    if (!productDropdownOpen || !searchedProducts?.length) return;
 
     const indices = billingSelectableProductIndices;
     const active =
@@ -564,7 +583,7 @@ const CreateBillingModal = ({
     if (e.key === "Enter") {
       e.preventDefault();
       if (active >= 0 && indices.includes(active)) {
-        handleAddProduct(products[active]);
+        handleAddProduct(searchedProducts[active]);
       }
     }
   };
@@ -732,85 +751,89 @@ const CreateBillingModal = ({
                       autoComplete="off"
                       className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                     />
-                    {productDropdownOpen && products && (
-                        <div
-                          className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto"
-                          role="listbox"
-                          aria-label="Product search results"
-                        >
-                          {products.map((product, idx) => {
-                            const alreadyAdded = items.some(
-                              (i) => i.productId === product.productId,
-                            );
-                            const lowTh = lowStockThreshold(product);
-                            const isLowStock =
-                              product.stockQuantity > 0 &&
-                              product.stockQuantity < lowTh;
-                            const isHighlighted = activeProductDropdownIndex === idx;
-                            return (
-                              <button
-                                key={product.productId}
-                                ref={isHighlighted ? productHighlightRef : null}
-                                type="button"
-                                role="option"
-                                aria-selected={isHighlighted}
-                                onMouseEnter={() => {
-                                  if (
-                                    !alreadyAdded &&
-                                    product.stockQuantity > 0
-                                  ) {
-                                    setProductHighlightIndex(idx);
-                                  }
-                                }}
-                                onClick={() => handleAddProduct(product)}
-                                disabled={alreadyAdded}
-                                className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
-                                  alreadyAdded
-                                    ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                    : product.stockQuantity <= 0
-                                      ? "opacity-50"
-                                      : isHighlighted
-                                        ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
-                                        : "hover:bg-gray-50"
+                    {productDropdownOpen && searchedProducts && (
+                      <div
+                        className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-48 overflow-y-auto"
+                        role="listbox"
+                        aria-label="Product search results"
+                      >
+                        {searchedProducts.map((product, idx) => {
+                          const alreadyAdded = items.some(
+                            (i) => i.productId === product.productId,
+                          );
+                          const lowTh = lowStockThreshold(product);
+                          const isLowStock =
+                            product.stockQuantity > 0 &&
+                            product.stockQuantity < lowTh;
+                          const isHighlighted =
+                            activeProductDropdownIndex === idx;
+                          return (
+                            <button
+                              key={product.productId}
+                              ref={isHighlighted ? productHighlightRef : null}
+                              type="button"
+                              role="option"
+                              aria-selected={isHighlighted}
+                              onMouseEnter={() => {
+                                if (
+                                  !alreadyAdded &&
+                                  product.stockQuantity > 0
+                                ) {
+                                  setProductHighlightIndex(idx);
+                                }
+                              }}
+                              onClick={() => handleAddProduct(product)}
+                              disabled={alreadyAdded}
+                              className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
+                                alreadyAdded
+                                  ? "bg-gray-50 opacity-50 cursor-not-allowed"
+                                  : product.stockQuantity <= 0
+                                    ? "opacity-50"
+                                    : isHighlighted
+                                      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+                                      : "hover:bg-gray-50"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                                  <Package className="w-3.5 h-3.5 text-emerald-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-800">
+                                    {product.name}
+                                    {alreadyAdded && (
+                                      <span className="ml-2 text-xs text-gray-400">
+                                        (added)
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="text-xs text-gray-400">
+                                    {product.serialNumber
+                                      ? `SN: ${product.serialNumber} · `
+                                      : ""}
+                                    ₹{product.price1.toFixed(2)}
+                                  </p>
+                                </div>
+                              </div>
+                              <span
+                                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                  product.stockQuantity <= 0
+                                    ? "bg-red-50 text-red-600"
+                                    : isLowStock
+                                      ? "bg-amber-50 text-amber-600"
+                                      : "bg-emerald-50 text-emerald-600"
                                 }`}
                               >
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                                    <Package className="w-3.5 h-3.5 text-emerald-600" />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium text-gray-800">
-                                      {product.name}
-                                      {alreadyAdded && (
-                                        <span className="ml-2 text-xs text-gray-400">
-                                          (added)
-                                        </span>
-                                      )}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                      ₹{product.price1.toFixed(2)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <span
-                                  className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                                    product.stockQuantity <= 0
-                                      ? "bg-red-50 text-red-600"
-                                      : isLowStock
-                                        ? "bg-amber-50 text-amber-600"
-                                        : "bg-emerald-50 text-emerald-600"
-                                  }`}
-                                >
-                                  {product.stockQuantity <= 0
-                                    ? "Out of stock"
-                                    : isLowStock
-                                      ? `Low (${product.stockQuantity} < ${lowTh})`
-                                      : `${product.stockQuantity} in stock`}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
+                                {product.stockQuantity <= 0
+                                  ? "Out of stock"
+                                  : isLowStock
+                                    ? `Low (${product.stockQuantity} < ${lowTh})`
+                                    : `${product.stockQuantity} in stock`}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                   <button

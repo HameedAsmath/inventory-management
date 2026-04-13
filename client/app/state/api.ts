@@ -4,6 +4,7 @@ export const DEFAULT_LOW_STOCK_QUANTITY = 10;
 
 export interface Product {
   productId: string;
+  serialNumber?: string | null;
   name: string;
   price1: number;
   price2?: number | null;
@@ -18,6 +19,7 @@ export function lowStockThreshold(product: Product): number {
 }
 
 export interface NewProduct {
+  serialNumber?: string;
   name: string;
   price1: number;
   price2?: number;

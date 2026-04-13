@@ -46,6 +46,7 @@ const Products = () => {
     useDeleteProductMutation();
 
   const handleCreateProduct = async (productData: {
+    serialNumber?: string;
     name: string;
     price1: number;
     price2?: number;
@@ -66,6 +67,7 @@ const Products = () => {
   const handleUpdateProduct = async (
     productId: string,
     productData: {
+      serialNumber?: string;
       name: string;
       price1: number;
       price2?: number;
@@ -408,6 +410,16 @@ const Products = () => {
                           Product Details
                         </h4>
                         <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+                          {product.serialNumber && (
+                            <div>
+                              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                Serial Number
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {product.serialNumber}
+                              </p>
+                            </div>
+                          )}
                           <div>
                             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
                               Product Name

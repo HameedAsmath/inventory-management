@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
 
 const DEFAULT_LOW_STOCK_QUANTITY = 10;
+const MIN_SERIAL_NUMBER_LENGTH = 3;
 
 function parseLowStockQuantity(raw: unknown): number | null {
   if (raw === undefined || raw === null || raw === "") {
@@ -24,6 +25,13 @@ const normalizeCategory = (
   return normalized.length > 0 ? normalized : null;
 };
 
+function normalizeSerialNumber(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const normalized = raw.trim();
+  if (normalized.length < MIN_SERIAL_NUMBER_LENGTH) return null;
+  return normalized;
+}
+
 export const getProducts = async (req: Request, res: Response) => {
   try {
     const search = req.query.search?.toString();
@@ -31,18 +39,21 @@ export const getProducts = async (req: Request, res: Response) => {
 
     const where: any = {};
 
+    const searchFilter = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { serialNumber: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
     if (search) {
-      where.name = {
-        contains: search,
-        mode: "insensitive",
-      };
+      where.OR = searchFilter.OR;
     }
 
     // Handle special filter cases (per-product threshold: stock < lowStockQuantity, in stock)
     if (category === "low-stock") {
-      const baseWhere = search
-        ? { name: { contains: search, mode: "insensitive" as const } }
-        : {};
+      const baseWhere = searchFilter;
       const list = await prisma.products.findMany({
         where: baseWhere,
         orderBy: { name: "asc" },
@@ -60,9 +71,7 @@ export const getProducts = async (req: Request, res: Response) => {
       if (normalizedCategory) {
         // Get all products first to filter by normalized category
         const allProducts = await prisma.products.findMany({
-          where: search
-            ? { name: { contains: search, mode: "insensitive" } }
-            : {},
+          where: searchFilter,
           orderBy: {
             name: "asc",
           },
@@ -100,13 +109,27 @@ export const createProduct = async (req: Request, res: Response) => {
       price2,
       cp,
       stockQuantity,
+      serialNumber: serialNumberRaw,
       category,
       lowStockQuantity: lowStockRaw,
     } = req.body;
-    if (!name || price1 === undefined || stockQuantity === undefined) {
+    if (
+      !name ||
+      price1 === undefined ||
+      stockQuantity === undefined
+    ) {
       return res.status(400).json({
         message: "name, price1, and stockQuantity are required",
       });
+    }
+    let serialNumber: string | null = null;
+    if (serialNumberRaw !== undefined) {
+      serialNumber = normalizeSerialNumber(serialNumberRaw);
+      if (!serialNumber) {
+        return res.status(400).json({
+          message: `serialNumber must be at least ${MIN_SERIAL_NUMBER_LENGTH} characters`,
+        });
+      }
     }
 
     let lowStockQuantity: number;
@@ -132,6 +155,7 @@ export const createProduct = async (req: Request, res: Response) => {
     const product = await prisma.products.create({
       data: {
         productId,
+        serialNumber,
         name,
         price1,
         price2: price2 ?? null,
@@ -144,6 +168,10 @@ export const createProduct = async (req: Request, res: Response) => {
     res.status(201).json(product);
   } catch (error: any) {
     if (error.code === "P2002") {
+      const target = String(error?.meta?.target ?? "");
+      if (target.includes("serialNumber")) {
+        return res.status(400).json({ message: "Serial number already exists" });
+      }
       return res.status(400).json({ message: "Product ID already exists" });
     }
     console.error("Error creating product:", error);
@@ -160,6 +188,7 @@ export const updateProduct = async (req: Request, res: Response) => {
       price2,
       cp,
       stockQuantity,
+      serialNumber: serialNumberRaw,
       category,
       lowStockQuantity: lowStockRaw,
     } = req.body;
@@ -175,6 +204,21 @@ export const updateProduct = async (req: Request, res: Response) => {
       lowStockUpdate = { lowStockQuantity: parsed };
     }
 
+    let serialNumberUpdate: { serialNumber: string | null } | undefined;
+    if (serialNumberRaw !== undefined) {
+      if (serialNumberRaw === null || serialNumberRaw === "") {
+        serialNumberUpdate = { serialNumber: null };
+      } else {
+      const serialNumber = normalizeSerialNumber(serialNumberRaw);
+        if (!serialNumber) {
+          return res.status(400).json({
+            message: `serialNumber must be at least ${MIN_SERIAL_NUMBER_LENGTH} characters`,
+          });
+        }
+        serialNumberUpdate = { serialNumber };
+      }
+    }
+
     const product = await prisma.products.update({
       where: { productId: String(productId) },
       data: {
@@ -183,6 +227,7 @@ export const updateProduct = async (req: Request, res: Response) => {
         ...(price2 !== undefined && { price2 }),
         ...(cp !== undefined && { cp }),
         ...(stockQuantity !== undefined && { stockQuantity }),
+        ...serialNumberUpdate,
         ...lowStockUpdate,
         ...(category !== undefined && {
           category: normalizeCategory(category),
@@ -191,6 +236,12 @@ export const updateProduct = async (req: Request, res: Response) => {
     });
     res.json(product);
   } catch (error: any) {
+    if (error.code === "P2002") {
+      const target = String(error?.meta?.target ?? "");
+      if (target.includes("serialNumber")) {
+        return res.status(400).json({ message: "Serial number already exists" });
+      }
+    }
     if (error.code === "P2025") {
       return res.status(404).json({ message: "Product not found" });
     }

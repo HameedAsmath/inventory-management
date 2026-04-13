@@ -2,12 +2,10 @@
 
 import React, { FormEvent, useState, useRef } from "react";
 import { Plus, X, Package, DollarSign, Boxes, Tag, Edit2 } from "lucide-react";
-import {
-  type Product,
-  DEFAULT_LOW_STOCK_QUANTITY,
-} from "../state/api";
+import { type Product, DEFAULT_LOW_STOCK_QUANTITY } from "../state/api";
 
 type ProductFormData = {
+  serialNumber?: string;
   name: string;
   price1: number;
   price2?: number;
@@ -38,6 +36,7 @@ const CreateProductModal = ({
   wrapperClassName = "z-50",
 }: CreateProductModalProps) => {
   const [name, setName] = useState("");
+  const [serialNumber, setSerialNumber] = useState("");
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
   const [cp, setCp] = useState("");
@@ -54,6 +53,7 @@ const CreateProductModal = ({
 
   const resetForm = () => {
     setName("");
+    setSerialNumber("");
     setPrice1("");
     setPrice2("");
     setCp("");
@@ -75,19 +75,20 @@ const CreateProductModal = ({
     prevKeyRef.current = editingKey;
     if (editingProduct && isOpen) {
       setName(editingProduct.name);
+      setSerialNumber(editingProduct.serialNumber ?? "");
       setPrice1(String(editingProduct.price1));
-      setPrice2(editingProduct.price2 != null ? String(editingProduct.price2) : "");
+      setPrice2(
+        editingProduct.price2 != null ? String(editingProduct.price2) : "",
+      );
       setCp(editingProduct.cp != null ? String(editingProduct.cp) : "");
       setStockQuantity(String(editingProduct.stockQuantity));
       setLowStockQuantity(
-        String(
-          editingProduct.lowStockQuantity ?? DEFAULT_LOW_STOCK_QUANTITY,
-        ),
+        String(editingProduct.lowStockQuantity ?? DEFAULT_LOW_STOCK_QUANTITY),
       );
       setCategory(editingProduct.category || "");
       setCategoryInput(editingProduct.category || "");
       setError("");
-    } else if (!isOpen) {
+    } else {
       resetForm();
     }
   }
@@ -114,6 +115,10 @@ const CreateProductModal = ({
 
     if (!name.trim()) {
       setError("Product name is required.");
+      return;
+    }
+    if (serialNumber.trim() && serialNumber.trim().length < 3) {
+      setError("Serial number must be at least 3 characters.");
       return;
     }
 
@@ -160,16 +165,13 @@ const CreateProductModal = ({
     }
 
     const lowStockNum = parseInt(lowStockQuantity, 10);
-    if (
-      !lowStockQuantity.trim() ||
-      isNaN(lowStockNum) ||
-      lowStockNum < 0
-    ) {
+    if (!lowStockQuantity.trim() || isNaN(lowStockNum) || lowStockNum < 0) {
       setError("Low stock quantity must be a non-negative integer.");
       return;
     }
 
     const formData: ProductFormData = {
+      ...(serialNumber.trim() && { serialNumber: serialNumber.trim() }),
       name: name.trim(),
       price1: price1Num,
       ...(price2Num !== undefined && { price2: price2Num }),
@@ -199,7 +201,7 @@ const CreateProductModal = ({
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
 
       <div className="flex min-h-full items-start justify-center p-4 pt-10">
-        <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
+        <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
@@ -220,7 +222,7 @@ const CreateProductModal = ({
           </div>
 
           <form onSubmit={handleSubmit}>
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-4">
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
@@ -228,28 +230,54 @@ const CreateProductModal = ({
                 </div>
               )}
 
-              {/* PRODUCT NAME */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-                    <Package className="w-3.5 h-3.5 text-blue-600" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* SERIAL NUMBER */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
+                      <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                    </div>
+                    <label
+                      htmlFor="serialNumber"
+                      className="text-sm font-semibold text-gray-800"
+                    >
+                      Serial Number
+                    </label>
                   </div>
-                  <label
-                    htmlFor="name"
-                    className="text-sm font-semibold text-gray-800"
-                  >
-                    Product Name <span className="text-red-500">*</span>
-                  </label>
+                  <input
+                    id="serialNumber"
+                    type="text"
+                    minLength={3}
+                    placeholder="Unique serial (optional)"
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
                 </div>
-                <input
-                  id="name"
-                  type="text"
-                  placeholder="Enter product name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  required
-                />
+
+                {/* PRODUCT NAME */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                      <Package className="w-3.5 h-3.5 text-blue-600" />
+                    </div>
+                    <label
+                      htmlFor="name"
+                      className="text-sm font-semibold text-gray-800"
+                    >
+                      Product Name <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  <input
+                    id="name"
+                    type="text"
+                    placeholder="Enter product name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    required
+                  />
+                </div>
               </div>
 
               {/* CATEGORY */}
@@ -304,8 +332,8 @@ const CreateProductModal = ({
                 </div>
               </div>
 
-              {/* PRICES */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* PRICES + CP */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -353,86 +381,87 @@ const CreateProductModal = ({
                     className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                   />
                 </div>
-              </div>
-
-              {/* CP */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center">
-                    <DollarSign className="w-3.5 h-3.5 text-rose-600" />
-                  </div>
+                <div>
                   <label
                     htmlFor="cp"
-                    className="text-sm font-semibold text-gray-800"
+                    className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2"
                   >
+                    <span className="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center">
+                      <DollarSign className="w-3.5 h-3.5 text-rose-600" />
+                    </span>
                     CP
                   </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="cp"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00 (optional)"
+                      value={cp}
+                      onChange={(e) => setCp(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    />
+                  </div>
                 </div>
-                <input
-                  id="cp"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00 (optional)"
-                  value={cp}
-                  onChange={(e) => setCp(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
               </div>
 
-              {/* STOCK QUANTITY */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
-                    <Boxes className="w-3.5 h-3.5 text-amber-600" />
+              {/* STOCK CONFIG */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Boxes className="w-3.5 h-3.5 text-amber-600" />
+                    </div>
+                    <label
+                      htmlFor="stockQuantity"
+                      className="text-sm font-semibold text-gray-800"
+                    >
+                      Stock Quantity <span className="text-red-500">*</span>
+                    </label>
                   </div>
-                  <label
-                    htmlFor="stockQuantity"
-                    className="text-sm font-semibold text-gray-800"
-                  >
-                    Stock Quantity <span className="text-red-500">*</span>
-                  </label>
+                  <input
+                    id="stockQuantity"
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={stockQuantity}
+                    onChange={(e) => setStockQuantity(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    required
+                  />
                 </div>
-                <input
-                  id="stockQuantity"
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={stockQuantity}
-                  onChange={(e) => setStockQuantity(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  required
-                />
-              </div>
 
-              {/* LOW STOCK THRESHOLD */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center">
-                    <Boxes className="w-3.5 h-3.5 text-orange-600" />
+                {/* LOW STOCK THRESHOLD */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center">
+                      <Boxes className="w-3.5 h-3.5 text-orange-600" />
+                    </div>
+                    <label
+                      htmlFor="lowStockQuantity"
+                      className="text-sm font-semibold text-gray-800"
+                    >
+                      Low stock threshold{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
                   </div>
-                  <label
-                    htmlFor="lowStockQuantity"
-                    className="text-sm font-semibold text-gray-800"
-                  >
-                    Low stock threshold <span className="text-red-500">*</span>
-                  </label>
+                  <input
+                    id="lowStockQuantity"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder={String(DEFAULT_LOW_STOCK_QUANTITY)}
+                    value={lowStockQuantity}
+                    onChange={(e) => setLowStockQuantity(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Alerts when on-hand quantity is below this level (default{" "}
+                    {DEFAULT_LOW_STOCK_QUANTITY}).
+                  </p>
                 </div>
-                <input
-                  id="lowStockQuantity"
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder={String(DEFAULT_LOW_STOCK_QUANTITY)}
-                  value={lowStockQuantity}
-                  onChange={(e) => setLowStockQuantity(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1.5">
-                  Alerts when on-hand quantity is below this level (default{" "}
-                  {DEFAULT_LOW_STOCK_QUANTITY}).
-                </p>
               </div>
             </div>
 

@@ -23,6 +23,22 @@ const modelNameMap: Record<string, string> = {
   billingItems: "billingItem",
 };
 
+function withProductSerialNumber(
+  baseName: string,
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  if (baseName !== "products") return data;
+  const existingSerial =
+    typeof data.serialNumber === "string" ? data.serialNumber.trim() : "";
+  if (existingSerial.length >= 3) return data;
+  const rawId = typeof data.productId === "string" ? data.productId : "";
+  const compactId = rawId.replace(/-/g, "");
+  return {
+    ...data,
+    serialNumber: `SN-${compactId.slice(0, 8) || Math.random().toString(36).slice(2, 10)}`,
+  };
+}
+
 async function deleteAllData(orderedFileNames: string[]) {
   const modelNames = orderedFileNames.map((fileName) => {
     const baseName = path.basename(fileName, path.extname(fileName));
@@ -82,7 +98,8 @@ async function main() {
       continue;
     }
 
-    for (const data of jsonData) {
+    for (const row of jsonData) {
+      const data = withProductSerialNumber(baseName, row);
       try {
         await model.create({
           data,

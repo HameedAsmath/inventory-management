@@ -135,20 +135,44 @@ const CreatePurchaseModal = ({
     return Array.from(set).sort();
   }, [catalogProducts]);
 
+  const searchedProducts = useMemo(() => {
+    if (!products) return [];
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return products;
+    const scoreProduct = (p: Product): number => {
+      const name = p.name.toLowerCase();
+      const serial = (p.serialNumber ?? "").toLowerCase();
+
+      if (serial === term) return 0;
+      if (serial.startsWith(term)) return 1;
+      if (serial.includes(term)) return 2;
+      if (name === term) return 3;
+      if (name.startsWith(term)) return 4;
+      if (name.includes(term)) return 5;
+      return 99;
+    };
+
+    return products
+      .map((p, idx) => ({ p, idx, score: scoreProduct(p) }))
+      .filter((x) => x.score < 99)
+      .sort((a, b) => a.score - b.score || a.idx - b.idx)
+      .map((x) => x.p);
+  }, [products, productSearch]);
+
   const purchaseSelectableProductIndices = useMemo(() => {
-    if (!products?.length) return [];
+    if (!searchedProducts?.length) return [];
     const out: number[] = [];
-    products.forEach((p, i) => {
+    searchedProducts.forEach((p, i) => {
       if (items.some((x) => x.productId === p.productId)) return;
       out.push(i);
     });
     return out;
-  }, [products, items]);
+  }, [searchedProducts, items]);
 
   const productDropdownOpen =
     showProductDropdown &&
     Boolean(productSearch?.trim()) &&
-    Boolean(products?.length);
+    Boolean(searchedProducts?.length);
 
   const activeProductDropdownIndex = useMemo(() => {
     const indices = purchaseSelectableProductIndices;
@@ -430,6 +454,7 @@ const CreatePurchaseModal = ({
   };
 
   const handleCreateProductFromModal = async (formData: {
+    serialNumber?: string;
     name: string;
     price1: number;
     price2?: number;
@@ -452,6 +477,7 @@ const CreatePurchaseModal = ({
   const handleUpdateProductFromModal = async (
     productId: string,
     formData: {
+      serialNumber?: string;
       name: string;
       price1: number;
       price2?: number;
@@ -487,7 +513,7 @@ const CreatePurchaseModal = ({
       setShowProductDropdown(false);
       return;
     }
-    if (!productDropdownOpen || !products?.length) return;
+    if (!productDropdownOpen || !searchedProducts?.length) return;
 
     const indices = purchaseSelectableProductIndices;
     const active =
@@ -513,7 +539,7 @@ const CreatePurchaseModal = ({
     if (e.key === "Enter") {
       e.preventDefault();
       if (active >= 0 && indices.includes(active)) {
-        handleAddProduct(products[active]);
+        handleAddProduct(searchedProducts[active]);
       }
     }
   };
@@ -693,13 +719,13 @@ const CreatePurchaseModal = ({
                       className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                     />
 
-                    {productDropdownOpen && products && (
+                    {productDropdownOpen && searchedProducts && (
                         <div
                           className="absolute z-30 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1.5 max-h-52 overflow-y-auto"
                           role="listbox"
                           aria-label="Product search results"
                         >
-                          {products.map((product, idx) => {
+                          {searchedProducts.map((product, idx) => {
                             const alreadyAdded = items.some(
                               (item) => item.productId === product.productId,
                             );
@@ -735,6 +761,9 @@ const CreatePurchaseModal = ({
                                       {product.name}
                                     </p>
                                     <p className="text-xs text-gray-400">
+                                      {product.serialNumber
+                                        ? `SN: ${product.serialNumber} · `
+                                        : ""}
                                       CP: ₹{(product.cp ?? 0).toFixed(2)}
                                     </p>
                                   </div>
