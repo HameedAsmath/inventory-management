@@ -15,8 +15,13 @@ services:
   backend:
     build: .
     container_name: backend-app
-    command: npm run start:prod
+    # Self-healing start command (same pattern that fixed dev):
+    # ensures deps + prisma client are present, runs migrations, then starts the server.
+    command: sh -c "npm install --omit=dev && npx prisma generate && npx prisma migrate deploy && node dist/index.js"
     restart: always
+    environment:
+      # Make sure the Node app listens on the same port docker-compose publishes.
+      PORT: 8000
     ports:
       - "8000:8000"
       - "2222:2222"
