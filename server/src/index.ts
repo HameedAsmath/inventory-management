@@ -19,13 +19,7 @@ import cookieParser from "cookie-parser";
 /* CONFIGURATIONS */
 dotenv.config();
 const app = express();
-app.use(express.json());
-app.use(helmet());
-app.use(cookieParser());
-app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
-app.use(morgan("common"));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+
 const allowedOrigins = [
   "https://inventory-management-seven-rose-59.vercel.app",
   "http://localhost:3000",
@@ -33,23 +27,36 @@ const allowedOrigins = [
   "https://www.roshannotebooks.store",
 ];
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  }),
-);
+const corsOptions: cors.CorsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no Origin header (curl, server-to-server, health checks)
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Deny without throwing so we don't return a 500 with no CORS headers
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 204,
+};
 
-const port = process.env.PORT || 3001;
-app.listen(Number(port), "0.0.0.0", () => {
-  console.log(`Server is running on port ${port}`);
-});
+// CORS must be the FIRST middleware so preflight (OPTIONS) requests
+// always get the right headers, even before helmet/body-parser run.
+app.use(cors(corsOptions));
+// Handle preflight for all routes (Express 5 compatible regex form).
+app.options(/.*/, cors(corsOptions));
+
+app.use(express.json());
+app.use(helmet());
+app.use(cookieParser());
+app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
+app.use(morgan("common"));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
+
+/* ROUTES */
 app.use("/", authRoutes);
 app.use("/dashboard", protect, dashboardRoutes);
 app.use("/products", protect, productRoutes);
@@ -58,3 +65,8 @@ app.use("/customers", protect, customerRoutes);
 app.use("/billing", protect, billingRoutes);
 app.use("/suppliers", protect, supplierRoutes);
 app.use("/purchases", protect, purchaseRoutes);
+
+const port = process.env.PORT || 3001;
+app.listen(Number(port), "0.0.0.0", () => {
+  console.log(`Server is running on port ${port}`);
+});
