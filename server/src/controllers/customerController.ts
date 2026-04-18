@@ -31,6 +31,12 @@ async function getUserShopDetails(
 }
 
 export async function recalculateCustomerBalances(tx: any, customerId: string) {
+  const customer = await tx.customer.findUnique({
+    where: { customerId },
+    select: { openingOutstanding: true },
+  });
+  const openingOutstanding = Math.max(0, customer?.openingOutstanding ?? 0);
+
   const billedAgg = await tx.billing.aggregate({
     where: { customerId },
     _sum: { totalAmount: true },
@@ -40,7 +46,8 @@ export async function recalculateCustomerBalances(tx: any, customerId: string) {
     _sum: { amount: true },
   });
 
-  const totalBilled = billedAgg?._sum?.totalAmount ?? 0;
+  const totalBilled =
+    openingOutstanding + (billedAgg?._sum?.totalAmount ?? 0);
   const totalPaid = paidAgg?._sum?.amount ?? 0;
   const totalOutstanding = Math.max(0, totalBilled - totalPaid);
   const totalCredit = Math.max(0, totalPaid - totalBilled);
@@ -49,6 +56,13 @@ export async function recalculateCustomerBalances(tx: any, customerId: string) {
     where: { customerId },
     data: { totalOutstanding, totalCredit },
   });
+}
+
+function parseOpeningOutstanding(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 export const getCustomers = async (req: Request, res: Response) => {
@@ -77,8 +91,16 @@ export const getCustomers = async (req: Request, res: Response) => {
     });
 
     const result = customers.map((c: any) => {
-      const totalBilled = c.Billing.reduce((s: number, b: any) => s + b.totalAmount, 0);
-      const totalPaid = c.payments.reduce((s: number, p: any) => s + p.amount, 0);
+      const billedFromBills = c.Billing.reduce(
+        (s: number, b: any) => s + b.totalAmount,
+        0,
+      );
+      const opening = Math.max(0, c.openingOutstanding ?? 0);
+      const totalBilled = opening + billedFromBills;
+      const totalPaid = c.payments.reduce(
+        (s: number, p: any) => s + p.amount,
+        0,
+      );
       const { Billing: _, payments: __, ...customer } = c;
       return {
         ...customer,
@@ -135,8 +157,25 @@ export const createCustomer = async (req: Request, res: Response) => {
   try {
     const { name, email, address, phone } = req.body;
 
+    const openingOutstanding = parseOpeningOutstanding(
+      req.body.openingOutstanding,
+    );
+    if (openingOutstanding === null) {
+      return res.status(400).json({
+        message: "Opening outstanding must be a non-negative number",
+      });
+    }
+
     const customer = await db.customer.create({
-      data: { name, email, address, phone },
+      data: {
+        name,
+        email,
+        address,
+        phone,
+        openingOutstanding,
+        totalOutstanding: openingOutstanding,
+        totalCredit: 0,
+      },
     });
     res.status(201).json(customer);
   } catch (error: any) {
@@ -152,10 +191,57 @@ export const updateCustomer = async (req: Request, res: Response) => {
     const { customerId } = req.params;
     const { name, email, address, phone } = req.body;
 
-    const customer = await db.customer.update({
-      where: { customerId: String(customerId) },
-      data: { name, email, address, phone },
+    const hasOpeningOutstanding = Object.prototype.hasOwnProperty.call(
+      req.body,
+      "openingOutstanding",
+    );
+    let openingOutstanding: number | null = null;
+    if (hasOpeningOutstanding) {
+      openingOutstanding = parseOpeningOutstanding(req.body.openingOutstanding);
+      if (openingOutstanding === null) {
+        return res.status(400).json({
+          message: "Opening outstanding must be a non-negative number",
+        });
+      }
+    }
+
+    const customer = await db.$transaction(async (tx: any) => {
+      const existing = await tx.customer.findUnique({
+        where: { customerId: String(customerId) },
+      });
+      if (!existing) {
+        throw Object.assign(new Error("Customer not found"), {
+          code: "P2025",
+        });
+      }
+
+      const updateData: Record<string, unknown> = {
+        name,
+        email,
+        address,
+        phone,
+      };
+      if (hasOpeningOutstanding) {
+        updateData.openingOutstanding = openingOutstanding;
+      }
+
+      await tx.customer.update({
+        where: { customerId: String(customerId) },
+        data: updateData,
+      });
+
+      if (
+        hasOpeningOutstanding &&
+        openingOutstanding !== existing.openingOutstanding
+      ) {
+        return await recalculateCustomerBalances(tx, String(customerId));
+      }
+
+      return await tx.customer.findUnique({
+        where: { customerId: String(customerId) },
+      });
     });
+
     res.json(customer);
   } catch (error: any) {
     if (error.code === "P2025") {
@@ -195,7 +281,10 @@ export const deleteCustomer = async (req: Request, res: Response) => {
   }
 };
 
-function buildBillingWhere(customerId: string, query: Record<string, string | undefined>) {
+function buildBillingWhere(
+  customerId: string,
+  query: Record<string, string | undefined>,
+) {
   const where: any = { customerId: String(customerId) };
   if (query.from || query.to) {
     where.timestamp = {};
@@ -215,7 +304,9 @@ export const recordCustomerPayment = async (req: Request, res: Response) => {
     const amount = Number(req.body.amount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ message: "Amount must be a positive number" });
+      return res
+        .status(400)
+        .json({ message: "Amount must be a positive number" });
     }
 
     const result = await db.$transaction(async (tx: any) => {
@@ -286,7 +377,9 @@ export const updateCustomerPayment = async (req: Request, res: Response) => {
     const amount = Number(req.body.amount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ message: "Amount must be a positive number" });
+      return res
+        .status(400)
+        .json({ message: "Amount must be a positive number" });
     }
 
     const result = await db.$transaction(async (tx: any) => {
@@ -378,11 +471,13 @@ export const getCustomerLedger = async (req: Request, res: Response) => {
         email: customer.email,
         phone: customer.phone,
         address: customer.address,
+        openingOutstanding: customer.openingOutstanding,
       },
       bills: customer.Billing,
       payments: customer.payments,
       outstanding: customer.totalOutstanding,
       credit: customer.totalCredit,
+      openingOutstanding: customer.openingOutstanding,
     });
   } catch (error: any) {
     console.error("Error fetching customer ledger:", error);
@@ -433,37 +528,43 @@ export const getCustomerStatementPdf = async (req: Request, res: Response) => {
       orderBy: { timestamp: "desc" },
     });
 
-    const totalAmount = bills.reduce((s: number, b: any) => s + b.totalAmount, 0);
+    const totalAmount = bills.reduce(
+      (s: number, b: any) => s + b.totalAmount,
+      0,
+    );
     const totalPaid = payments.reduce((s: number, p: any) => s + p.amount, 0);
 
     const openingBalance = Math.max(0, customer.totalOutstanding - totalAmount);
     const shop = await getUserShopDetails(req.userId);
 
-    const pdfBuffer = await generateStatementPdf({
-      customer: {
-        name: customer.name,
-        email: customer.email,
-        address: customer.address,
+    const pdfBuffer = await generateStatementPdf(
+      {
+        customer: {
+          name: customer.name,
+          email: customer.email,
+          address: customer.address,
+        },
+        bills: bills.map((b: any) => ({
+          billingId: b.billingId,
+          totalAmount: b.totalAmount,
+          timestamp: b.timestamp,
+        })),
+        payments: payments.map((p: any) => ({
+          paymentId: p.paymentId,
+          amount: p.amount,
+          type: p.type,
+          timestamp: p.timestamp,
+        })),
+        totalAmount,
+        totalPaid,
+        outstanding: customer.totalOutstanding,
+        credit: customer.totalCredit,
+        openingBalance,
+        billAmount: totalAmount,
+        currentBalance: customer.totalOutstanding,
       },
-      bills: bills.map((b: any) => ({
-        billingId: b.billingId,
-        totalAmount: b.totalAmount,
-        timestamp: b.timestamp,
-      })),
-      payments: payments.map((p: any) => ({
-        paymentId: p.paymentId,
-        amount: p.amount,
-        type: p.type,
-        timestamp: p.timestamp,
-      })),
-      totalAmount,
-      totalPaid,
-      outstanding: customer.totalOutstanding,
-      credit: customer.totalCredit,
-      openingBalance,
-      billAmount: totalAmount,
-      currentBalance: customer.totalOutstanding,
-    }, shop);
+      shop,
+    );
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -525,37 +626,43 @@ export const emailCustomerStatement = async (req: Request, res: Response) => {
       orderBy: { timestamp: "desc" },
     });
 
-    const totalAmount = bills.reduce((s: number, b: any) => s + b.totalAmount, 0);
+    const totalAmount = bills.reduce(
+      (s: number, b: any) => s + b.totalAmount,
+      0,
+    );
     const totalPaid = payments.reduce((s: number, p: any) => s + p.amount, 0);
 
     const openingBalance = Math.max(0, customer.totalOutstanding - totalAmount);
     const shop = await getUserShopDetails(req.userId);
 
-    const pdfBuffer = await generateStatementPdf({
-      customer: {
-        name: customer.name,
-        email: customer.email,
-        address: customer.address,
+    const pdfBuffer = await generateStatementPdf(
+      {
+        customer: {
+          name: customer.name,
+          email: customer.email,
+          address: customer.address,
+        },
+        bills: bills.map((b: any) => ({
+          billingId: b.billingId,
+          totalAmount: b.totalAmount,
+          timestamp: b.timestamp,
+        })),
+        payments: payments.map((p: any) => ({
+          paymentId: p.paymentId,
+          amount: p.amount,
+          type: p.type,
+          timestamp: p.timestamp,
+        })),
+        totalAmount,
+        totalPaid,
+        outstanding: customer.totalOutstanding,
+        credit: customer.totalCredit,
+        openingBalance,
+        billAmount: totalAmount,
+        currentBalance: customer.totalOutstanding,
       },
-      bills: bills.map((b: any) => ({
-        billingId: b.billingId,
-        totalAmount: b.totalAmount,
-        timestamp: b.timestamp,
-      })),
-      payments: payments.map((p: any) => ({
-        paymentId: p.paymentId,
-        amount: p.amount,
-        type: p.type,
-        timestamp: p.timestamp,
-      })),
-      totalAmount,
-      totalPaid,
-      outstanding: customer.totalOutstanding,
-      credit: customer.totalCredit,
-      openingBalance,
-      billAmount: totalAmount,
-      currentBalance: customer.totalOutstanding,
-    }, shop);
+      shop,
+    );
 
     await sendStatementEmail({
       to: recipientEmail,

@@ -15,7 +15,7 @@ services:
   backend:
     build: .
     container_name: backend-app
-    command: sh -c "npx prisma migrate deploy && npx prisma generate && npm run dev"
+    command: sh -c "npm install && npx prisma migrate deploy && npx prisma generate && npm run dev"
     restart: always
     ports:
       - "8000:8000"

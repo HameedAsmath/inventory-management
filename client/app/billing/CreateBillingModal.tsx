@@ -33,6 +33,8 @@ import { v4 } from "uuid";
 import { toast } from "sonner";
 import CreateProductModal from "../products/CreateProductModal";
 
+type PriceType = "price1" | "price2" | "custom";
+
 type BillingItemInput = {
   productId: string;
   productName: string;
@@ -40,23 +42,42 @@ type BillingItemInput = {
   price: number;
   price1: number;
   price2: number | null;
-  selectedPriceType: "price1" | "price2";
+  selectedPriceType: PriceType;
+  customPriceInput: string;
   discountInput: string;
   maxStock: number;
 };
 
-function parseDiscount(input: string, gross: number): number {
+/**
+ * Parses the discount input as a PER-UNIT discount and returns the total
+ * line discount (per-unit * qty), capped so the line can't go negative.
+ * - "50"   → ₹50 off each unit  → line discount = 50 * qty
+ * - "10%"  → 10% off each unit  → line discount = 10% of (unitPrice * qty)
+ */
+function parseLineDiscount(
+  input: string,
+  unitPrice: number,
+  qty: number,
+): number {
   const trimmed = input.trim();
-  if (!trimmed) return 0;
+  if (!trimmed || qty <= 0 || unitPrice <= 0) return 0;
+  const gross = unitPrice * qty;
   if (trimmed.endsWith("%")) {
     const pct = parseFloat(trimmed.slice(0, -1));
     if (isNaN(pct) || pct < 0) return 0;
     const clamped = Math.min(pct, 100);
     return Math.round(((gross * clamped) / 100) * 100) / 100;
   }
-  const amt = parseFloat(trimmed);
-  if (isNaN(amt) || amt < 0) return 0;
-  return Math.min(amt, gross);
+  const perUnit = parseFloat(trimmed);
+  if (isNaN(perUnit) || perUnit < 0) return 0;
+  const cappedPerUnit = Math.min(perUnit, unitPrice);
+  return Math.round(cappedPerUnit * qty * 100) / 100;
+}
+
+function parsePriceInput(raw: string): number {
+  const n = parseFloat(raw.trim());
+  if (isNaN(n) || n < 0) return 0;
+  return n;
 }
 
 /** Qty used for line totals while typing: empty / invalid → 0; capped at maxStock. */
@@ -200,7 +221,7 @@ const CreateBillingModal = ({
   const itemsTotal = items.reduce((sum, item) => {
     const q = quantityForPricing(item.quantityInput, item.maxStock);
     const gross = item.price * q;
-    const disc = parseDiscount(item.discountInput, gross);
+    const disc = parseLineDiscount(item.discountInput, item.price, q);
     return sum + Math.max(0, gross - disc);
   }, 0);
 
@@ -209,6 +230,14 @@ const CreateBillingModal = ({
       items.length > 0 &&
       items.every((item) =>
         isValidBillQuantity(item.quantityInput, item.maxStock),
+      ),
+    [items],
+  );
+
+  const allLinePricesValid = useMemo(
+    () =>
+      items.every(
+        (item) => item.selectedPriceType !== "custom" || item.price > 0,
       ),
     [items],
   );
@@ -257,6 +286,7 @@ const CreateBillingModal = ({
         price1: product.price1,
         price2: product.price2 ?? null,
         selectedPriceType: "price1",
+        customPriceInput: "",
         discountInput: "",
         maxStock: product.stockQuantity,
       },
@@ -271,23 +301,46 @@ const CreateBillingModal = ({
     setItems(items.filter((item) => item.productId !== productId));
   };
 
-  const handlePriceTypeChange = (
-    productId: string,
-    priceType: "price1" | "price2",
-  ) => {
+  const handlePriceTypeChange = (productId: string, priceType: PriceType) => {
     setItems(
-      items.map((item) =>
-        item.productId === productId
-          ? {
-              ...item,
-              selectedPriceType: priceType,
-              price:
-                priceType === "price1"
-                  ? item.price1
-                  : (item.price2 ?? item.price1),
-            }
-          : item,
-      ),
+      items.map((item) => {
+        if (item.productId !== productId) return item;
+        if (priceType === "custom") {
+          // Seed the custom input with the current price if empty, so users
+          // can tweak rather than start from scratch.
+          const seed =
+            item.customPriceInput.trim() !== ""
+              ? item.customPriceInput
+              : String(item.price);
+          return {
+            ...item,
+            selectedPriceType: "custom",
+            customPriceInput: seed,
+            price: parsePriceInput(seed),
+          };
+        }
+        return {
+          ...item,
+          selectedPriceType: priceType,
+          price:
+            priceType === "price1"
+              ? item.price1
+              : (item.price2 ?? item.price1),
+        };
+      }),
+    );
+  };
+
+  const handleCustomPriceChange = (productId: string, value: string) => {
+    setItems(
+      items.map((item) => {
+        if (item.productId !== productId) return item;
+        return {
+          ...item,
+          customPriceInput: value,
+          price: parsePriceInput(value),
+        };
+      }),
     );
   };
 
@@ -347,12 +400,17 @@ const CreateBillingModal = ({
         );
         return;
       }
+      if (item.selectedPriceType === "custom" && item.price <= 0) {
+        setError(
+          `Enter a valid custom price for ${item.productName} (greater than 0).`,
+        );
+        return;
+      }
     }
 
     const linePayload = items.map((item) => {
       const qty = parseInt(item.quantityInput.trim(), 10);
-      const gross = item.price * qty;
-      const discount = parseDiscount(item.discountInput, gross);
+      const discount = parseLineDiscount(item.discountInput, item.price, qty);
       return {
         productId: item.productId,
         quantity: qty,
@@ -417,16 +475,25 @@ const CreateBillingModal = ({
         editingBilling.BillingItem.map((line) => {
           const p = line.product;
           const price2 = p.price2 ?? null;
+          const isP1 = Math.abs(line.price - p.price1) < 0.01;
           const isP2 = price2 != null && Math.abs(line.price - price2) < 0.01;
-          const selectedPriceType: "price1" | "price2" = isP2
-            ? "price2"
-            : "price1";
+          const selectedPriceType: PriceType = isP1
+            ? "price1"
+            : isP2
+              ? "price2"
+              : "custom";
+          const customPriceInput =
+            selectedPriceType === "custom" ? String(line.price) : "";
           const maxStock = (p.stockQuantity ?? 0) + line.quantity;
+          // Stored discount is the total line discount. Convert back to per-unit
+          // for the input so current bills keep the same numbers on save.
+          const perUnit =
+            line.quantity > 0 ? line.discount / line.quantity : 0;
           const disc =
-            line.discount > 0
-              ? Number.isInteger(line.discount)
-                ? String(line.discount)
-                : line.discount.toFixed(2)
+            perUnit > 0
+              ? Number.isInteger(perUnit)
+                ? String(perUnit)
+                : perUnit.toFixed(2)
               : "";
           return {
             productId: line.productId,
@@ -436,6 +503,7 @@ const CreateBillingModal = ({
             price1: p.price1,
             price2,
             selectedPriceType,
+            customPriceInput,
             discountInput: disc,
             maxStock,
           };
@@ -468,10 +536,14 @@ const CreateBillingModal = ({
       prev.map((item) => {
         if (item.productId !== updated.productId) return item;
         const price2 = updated.price2 ?? null;
-        const nextPrice =
-          item.selectedPriceType === "price1"
-            ? updated.price1
-            : (price2 ?? updated.price1);
+        let nextPrice: number;
+        if (item.selectedPriceType === "custom") {
+          nextPrice = parsePriceInput(item.customPriceInput);
+        } else if (item.selectedPriceType === "price2") {
+          nextPrice = price2 ?? updated.price1;
+        } else {
+          nextPrice = updated.price1;
+        }
         const prev = parseInt(item.quantityInput.trim(), 10);
         const safePrev =
           item.quantityInput.trim() === "" || isNaN(prev) ? 1 : prev;
@@ -851,7 +923,7 @@ const CreateBillingModal = ({
 
                 {/* ITEMS TABLE */}
                 {items.length > 0 ? (
-                  <div className="mt-4 bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <div className="mt-4 bg-white rounded-lg border border-gray-200 max-h-[270px] overflow-y-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
@@ -930,28 +1002,51 @@ const CreateBillingModal = ({
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex flex-col items-end gap-1">
-                                {item.price2 != null ? (
-                                  <select
-                                    value={item.selectedPriceType}
-                                    onChange={(e) =>
-                                      handlePriceTypeChange(
-                                        item.productId,
-                                        e.target.value as "price1" | "price2",
-                                      )
-                                    }
-                                    className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                  >
-                                    <option value="price1">price 1</option>
+                                <select
+                                  value={item.selectedPriceType}
+                                  onChange={(e) =>
+                                    handlePriceTypeChange(
+                                      item.productId,
+                                      e.target.value as PriceType,
+                                    )
+                                  }
+                                  className="w-20 text-xs border border-gray-200 rounded-md px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                >
+                                  <option value="price1">price 1</option>
+                                  {item.price2 != null && (
                                     <option value="price2">price 2</option>
-                                  </select>
+                                  )}
+                                  <option value="custom">custom</option>
+                                </select>
+                                {item.selectedPriceType === "custom" ? (
+                                  <div className="relative">
+                                    <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                                      ₹
+                                    </span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      autoComplete="off"
+                                      placeholder="0.00"
+                                      value={item.customPriceInput}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (v !== "" && !/^\d*\.?\d*$/.test(v))
+                                          return;
+                                        handleCustomPriceChange(
+                                          item.productId,
+                                          v,
+                                        );
+                                      }}
+                                      aria-label="Custom price"
+                                      className="w-20 text-right text-xs font-medium text-gray-700 border border-gray-200 rounded-md pl-4 pr-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300"
+                                    />
+                                  </div>
                                 ) : (
-                                  <span className="text-xs text-gray-400">
-                                    price 1
+                                  <span className="text-sm text-gray-700 font-medium">
+                                    ₹{item.price.toFixed(2)}
                                   </span>
                                 )}
-                                <span className="text-sm text-gray-700 font-medium">
-                                  ₹{item.price.toFixed(2)}
-                                </span>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right">
@@ -966,17 +1061,20 @@ const CreateBillingModal = ({
                                   )
                                 }
                                 className="w-20 text-right text-sm border border-gray-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300"
-                                title="Enter amount (e.g. 50) or percentage (e.g. 10%)"
+                                title="Per-unit discount. Enter amount (e.g. 50) or percentage (e.g. 10%)"
                               />
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                per unit
+                              </p>
                               {(() => {
                                 const q = quantityForPricing(
                                   item.quantityInput,
                                   item.maxStock,
                                 );
-                                const gross = item.price * q;
-                                const disc = parseDiscount(
+                                const disc = parseLineDiscount(
                                   item.discountInput,
-                                  gross,
+                                  item.price,
+                                  q,
                                 );
                                 return disc > 0 ? (
                                   <p className="text-xs text-red-500 mt-0.5">
@@ -992,9 +1090,10 @@ const CreateBillingModal = ({
                                   item.maxStock,
                                 );
                                 const gross = item.price * q;
-                                const disc = parseDiscount(
+                                const disc = parseLineDiscount(
                                   item.discountInput,
-                                  gross,
+                                  item.price,
+                                  q,
                                 );
                                 const sub = Math.max(0, gross - disc);
                                 return (
@@ -1114,7 +1213,8 @@ const CreateBillingModal = ({
                     disabled={
                       !customerId ||
                       items.length === 0 ||
-                      !allLineQuantitiesValid
+                      !allLineQuantitiesValid ||
+                      !allLinePricesValid
                     }
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-sm"
                   >

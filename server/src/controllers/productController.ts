@@ -43,7 +43,9 @@ export const getProducts = async (req: Request, res: Response) => {
       ? {
           OR: [
             { name: { contains: search, mode: "insensitive" as const } },
-            { serialNumber: { contains: search, mode: "insensitive" as const } },
+            {
+              serialNumber: { contains: search, mode: "insensitive" as const },
+            },
           ],
         }
       : {};
@@ -59,8 +61,7 @@ export const getProducts = async (req: Request, res: Response) => {
         orderBy: { name: "asc" },
       });
       const filtered = list.filter(
-        (p) =>
-          p.stockQuantity > 0 && p.stockQuantity < p.lowStockQuantity,
+        (p) => p.stockQuantity > 0 && p.stockQuantity < p.lowStockQuantity,
       );
       return res.json(filtered);
     } else if (category === "out-of-stock") {
@@ -113,11 +114,7 @@ export const createProduct = async (req: Request, res: Response) => {
       category,
       lowStockQuantity: lowStockRaw,
     } = req.body;
-    if (
-      !name ||
-      price1 === undefined ||
-      stockQuantity === undefined
-    ) {
+    if (!name || price1 === undefined || stockQuantity === undefined) {
       return res.status(400).json({
         message: "name, price1, and stockQuantity are required",
       });
@@ -170,7 +167,9 @@ export const createProduct = async (req: Request, res: Response) => {
     if (error.code === "P2002") {
       const target = String(error?.meta?.target ?? "");
       if (target.includes("serialNumber")) {
-        return res.status(400).json({ message: "Serial number already exists" });
+        return res
+          .status(400)
+          .json({ message: "Serial number already exists" });
       }
       return res.status(400).json({ message: "Product ID already exists" });
     }
@@ -209,7 +208,7 @@ export const updateProduct = async (req: Request, res: Response) => {
       if (serialNumberRaw === null || serialNumberRaw === "") {
         serialNumberUpdate = { serialNumber: null };
       } else {
-      const serialNumber = normalizeSerialNumber(serialNumberRaw);
+        const serialNumber = normalizeSerialNumber(serialNumberRaw);
         if (!serialNumber) {
           return res.status(400).json({
             message: `serialNumber must be at least ${MIN_SERIAL_NUMBER_LENGTH} characters`,
@@ -239,7 +238,9 @@ export const updateProduct = async (req: Request, res: Response) => {
     if (error.code === "P2002") {
       const target = String(error?.meta?.target ?? "");
       if (target.includes("serialNumber")) {
-        return res.status(400).json({ message: "Serial number already exists" });
+        return res
+          .status(400)
+          .json({ message: "Serial number already exists" });
       }
     }
     if (error.code === "P2025") {
@@ -261,17 +262,15 @@ export const deleteProduct = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    const [billingItemCount, purchaseItemCount, salesCount] = await Promise.all([
-      prisma.billingItem.count({ where: { productId } }),
-      prisma.purchaseItem.count({ where: { productId } }),
-      prisma.sales.count({ where: { productId } }),
-    ]);
+    const [billingItemCount, purchaseItemCount, salesCount] = await Promise.all(
+      [
+        prisma.billingItem.count({ where: { productId } }),
+        prisma.purchaseItem.count({ where: { productId } }),
+        prisma.sales.count({ where: { productId } }),
+      ],
+    );
 
-    if (
-      billingItemCount > 0 ||
-      purchaseItemCount > 0 ||
-      salesCount > 0
-    ) {
+    if (billingItemCount > 0 || purchaseItemCount > 0 || salesCount > 0) {
       const reasons: string[] = [];
       if (billingItemCount > 0) {
         reasons.push(

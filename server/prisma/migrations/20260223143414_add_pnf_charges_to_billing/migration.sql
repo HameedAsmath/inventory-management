@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE "Billing" ADD COLUMN     "pnfCharges" DOUBLE PRECISION NOT NULL DEFAULT 0;

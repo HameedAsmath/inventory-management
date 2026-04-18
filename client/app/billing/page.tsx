@@ -86,9 +86,7 @@ const Billing = () => {
     try {
       await deleteBilling(billing.billingId).unwrap();
       toast.success("Bill deleted");
-      setExpandedBill((prev) =>
-        prev === billing.billingId ? null : prev,
-      );
+      setExpandedBill((prev) => (prev === billing.billingId ? null : prev));
     } catch {
       /* Error toast: rtkQueryErrorToast middleware (executeMutation only) */
     }
@@ -236,7 +234,9 @@ const Billing = () => {
             </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-gray-500 font-medium">Customer</label>
+            <label className="text-xs text-gray-500 font-medium">
+              Customer
+            </label>
             <select
               value={selectedCustomerName}
               onChange={(e) => setSelectedCustomerName(e.target.value)}

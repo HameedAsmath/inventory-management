@@ -76,6 +76,7 @@ export interface Customer {
   email?: string;
   phone?: string;
   address?: string;
+  openingOutstanding?: number;
   totalOutstanding?: number;
   totalCredit?: number;
   totalBilled?: number;
@@ -89,12 +90,43 @@ export interface Supplier {
   phone?: string | null;
   address?: string | null;
   createdAt: string;
+  openingOutstanding?: number;
+  totalOutstanding?: number;
+  totalCredit?: number;
+  totalPurchased?: number;
+  totalPaid?: number;
+  balance?: number;
 }
 
 export interface NewSupplier {
   name: string;
   phone?: string;
   address?: string;
+  openingOutstanding?: number;
+}
+
+export interface UpdateSupplier {
+  name?: string;
+  phone?: string;
+  address?: string;
+  openingOutstanding?: number;
+}
+
+export interface SupplierPayment {
+  paymentId: string;
+  supplierId: string;
+  amount: number;
+  type: "payment" | "advance";
+  timestamp: string;
+}
+
+export interface SupplierLedger {
+  supplier: Supplier;
+  purchases: Purchase[];
+  payments: SupplierPayment[];
+  outstanding: number;
+  credit: number;
+  openingOutstanding?: number;
 }
 
 export interface CustomerWithBillings extends Customer {
@@ -107,12 +139,14 @@ export interface NewCustomer {
   name: string;
   email?: string;
   address?: string;
+  openingOutstanding?: number;
 }
 
 export interface UpdateCustomer {
   name?: string;
   email?: string;
   address?: string;
+  openingOutstanding?: number;
 }
 
 export interface BillingItem {
@@ -160,6 +194,8 @@ export interface Purchase {
   purchaseDate: string;
   notes?: string | null;
   totalAmount: number;
+  openingBalance?: number;
+  closingBalance?: number;
   createdAt: string;
   supplier: Supplier;
   purchaseItems: PurchaseItem[];
@@ -276,6 +312,7 @@ export interface CustomerLedger {
   payments: CustomerPayment[];
   outstanding: number;
   credit: number;
+  openingOutstanding?: number;
 }
 
 export interface LoginRequest {
@@ -517,6 +554,10 @@ export const api = createApi({
       query: (search) => `/suppliers${search ? `?search=${search}` : ""}`,
       providesTags: ["Suppliers"],
     }),
+    getSupplierLedger: build.query<SupplierLedger, string>({
+      query: (supplierId) => `/suppliers/${supplierId}/ledger`,
+      providesTags: ["Suppliers", "Purchases"],
+    }),
     createSupplier: build.mutation<Supplier, NewSupplier>({
       query: (newSupplier) => ({
         url: "/suppliers",
@@ -527,7 +568,7 @@ export const api = createApi({
     }),
     updateSupplier: build.mutation<
       Supplier,
-      { supplierId: string; data: Partial<NewSupplier> }
+      { supplierId: string; data: UpdateSupplier }
     >({
       query: ({ supplierId, data }) => ({
         url: `/suppliers/${supplierId}`,
@@ -542,6 +583,38 @@ export const api = createApi({
         method: "DELETE",
       }),
       invalidatesTags: ["Suppliers"],
+    }),
+    recordSupplierPayment: build.mutation<
+      { supplier: Supplier; entries: SupplierPayment[] },
+      { supplierId: string; amount: number }
+    >({
+      query: ({ supplierId, amount }) => ({
+        url: `/suppliers/${supplierId}/pay`,
+        method: "POST",
+        body: { amount },
+      }),
+      invalidatesTags: ["Suppliers", "Purchases"],
+    }),
+    updateSupplierPayment: build.mutation<
+      { payment: SupplierPayment; supplier: Supplier },
+      { supplierId: string; paymentId: string; amount: number }
+    >({
+      query: ({ supplierId, paymentId, amount }) => ({
+        url: `/suppliers/${supplierId}/payments/${paymentId}`,
+        method: "PATCH",
+        body: { amount },
+      }),
+      invalidatesTags: ["Suppliers", "Purchases"],
+    }),
+    deleteSupplierPayment: build.mutation<
+      { message: string; supplier: Supplier },
+      { supplierId: string; paymentId: string }
+    >({
+      query: ({ supplierId, paymentId }) => ({
+        url: `/suppliers/${supplierId}/payments/${paymentId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Suppliers", "Purchases"],
     }),
 
     // Purchases
@@ -598,7 +671,12 @@ export const api = createApi({
         method: "POST",
         body: billingData,
       }),
-      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
+      invalidatesTags: [
+        "Billings",
+        "Products",
+        "Customers",
+        "DashboardMetrics",
+      ],
     }),
     sendBillingEmail: build.mutation<
       { message: string },
@@ -619,7 +697,12 @@ export const api = createApi({
         method: "PUT",
         body: data,
       }),
-      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
+      invalidatesTags: [
+        "Billings",
+        "Products",
+        "Customers",
+        "DashboardMetrics",
+      ],
     }),
     deleteBilling: build.mutation<
       { message: string; billingId: string },
@@ -629,7 +712,12 @@ export const api = createApi({
         url: `/billing/${billingId}`,
         method: "DELETE",
       }),
-      invalidatesTags: ["Billings", "Products", "Customers", "DashboardMetrics"],
+      invalidatesTags: [
+        "Billings",
+        "Products",
+        "Customers",
+        "DashboardMetrics",
+      ],
     }),
     sendCustomerStatementEmail: build.mutation<
       { message: string },
@@ -692,9 +780,13 @@ export const {
   useUpdateCustomerPaymentMutation,
   useDeleteCustomerPaymentMutation,
   useGetSuppliersQuery,
+  useGetSupplierLedgerQuery,
   useCreateSupplierMutation,
   useUpdateSupplierMutation,
   useDeleteSupplierMutation,
+  useRecordSupplierPaymentMutation,
+  useUpdateSupplierPaymentMutation,
+  useDeleteSupplierPaymentMutation,
   useGetPurchasesQuery,
   useCreatePurchaseMutation,
   useUpdatePurchaseMutation,

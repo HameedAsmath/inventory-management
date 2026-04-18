@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
+import { recalculateSupplierBalances } from "./supplierController.js";
 
 type PurchaseItemInput = {
   productId: string;
@@ -34,17 +35,23 @@ export const createPurchase = async (req: Request, res: Response) => {
 
     for (const item of items) {
       if (!item.productId) {
-        return res.status(400).json({ message: "productId is required for all items" });
+        return res
+          .status(400)
+          .json({ message: "productId is required for all items" });
       }
       if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
         return res
           .status(400)
-          .json({ message: "quantity must be a positive number for all items" });
+          .json({
+            message: "quantity must be a positive number for all items",
+          });
       }
       if (!Number.isFinite(item.costPrice) || item.costPrice <= 0) {
         return res
           .status(400)
-          .json({ message: "costPrice must be a positive number for all items" });
+          .json({
+            message: "costPrice must be a positive number for all items",
+          });
       }
     }
 
@@ -54,7 +61,9 @@ export const createPurchase = async (req: Request, res: Response) => {
       select: { productId: true, name: true },
     });
     if (products.length !== uniqueProductIds.length) {
-      return res.status(400).json({ message: "One or more products were not found" });
+      return res
+        .status(400)
+        .json({ message: "One or more products were not found" });
     }
 
     const totalAmount = items.reduce(
@@ -70,12 +79,33 @@ export const createPurchase = async (req: Request, res: Response) => {
         throw new Error("Supplier not found");
       }
 
+      // Snapshot opening balance + apply any existing supplier credit
+      // (advance we had paid). Same model as customer billing.
+      const availableCredit = Math.max(0, (supplier as any).totalCredit || 0);
+      const creditApplied = Math.min(availableCredit, totalAmount);
+      const outstandingIncrease = Math.max(0, totalAmount - creditApplied);
+      const openingBalance = Math.max(
+        0,
+        Number((supplier as any).totalOutstanding || 0),
+      );
+      const closingBalance = openingBalance + outstandingIncrease;
+
       const createdPurchase = await tx.purchase.create({
         data: {
           supplierId: String(supplierId),
           purchaseDate: new Date(purchaseDate),
           notes: notes ? String(notes).trim() : null,
           totalAmount,
+          openingBalance,
+          closingBalance,
+        },
+      });
+
+      await (tx as any).supplier.update({
+        where: { supplierId: String(supplierId) },
+        data: {
+          totalCredit: { decrement: creditApplied },
+          totalOutstanding: { increment: outstandingIncrease },
         },
       });
 
@@ -187,17 +217,23 @@ export const updatePurchase = async (req: Request, res: Response) => {
 
     for (const item of items) {
       if (!item.productId) {
-        return res.status(400).json({ message: "productId is required for all items" });
+        return res
+          .status(400)
+          .json({ message: "productId is required for all items" });
       }
       if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
         return res
           .status(400)
-          .json({ message: "quantity must be a positive number for all items" });
+          .json({
+            message: "quantity must be a positive number for all items",
+          });
       }
       if (!Number.isFinite(item.costPrice) || item.costPrice <= 0) {
         return res
           .status(400)
-          .json({ message: "costPrice must be a positive number for all items" });
+          .json({
+            message: "costPrice must be a positive number for all items",
+          });
       }
     }
 
@@ -205,7 +241,10 @@ export const updatePurchase = async (req: Request, res: Response) => {
       (sum, item) => sum + Number(item.quantity) * Number(item.costPrice),
       0,
     );
-    if (!Number.isFinite(totalAmount) || Math.abs(computedTotal - Number(totalAmount)) > 0.01) {
+    if (
+      !Number.isFinite(totalAmount) ||
+      Math.abs(computedTotal - Number(totalAmount)) > 0.01
+    ) {
       return res.status(400).json({
         message:
           "Provided totalAmount does not match the computed total from line items",
@@ -275,14 +314,45 @@ export const updatePurchase = async (req: Request, res: Response) => {
         });
       }
 
+      // Recompute this purchase's balance snapshot so it reflects the edited
+      // total. Preserve the original openingBalance (historical fact: what we
+      // owed the supplier before this purchase) and the credit that was
+      // applied at creation time, so only the delta flows into closingBalance.
+      const oldTotal = Number(existing.totalAmount || 0);
+      const openingBalance = Math.max(
+        0,
+        Number((existing as any).openingBalance || 0),
+      );
+      const oldClosingBalance = Math.max(
+        0,
+        Number((existing as any).closingBalance || 0),
+      );
+      const oldOutstandingIncrease = Math.max(
+        0,
+        oldClosingBalance - openingBalance,
+      );
+      const creditAppliedOnThisPurchase = Math.max(
+        0,
+        oldTotal - oldOutstandingIncrease,
+      );
+      const newOutstandingIncrease = Math.max(
+        0,
+        computedTotal - creditAppliedOnThisPurchase,
+      );
+      const newClosingBalance = openingBalance + newOutstandingIncrease;
+
       await tx.purchase.update({
         where: { purchaseId },
         data: {
           purchaseDate: new Date(purchaseDate),
-          notes: notes != null && String(notes).trim() ? String(notes).trim() : null,
+          notes:
+            notes != null && String(notes).trim() ? String(notes).trim() : null,
           totalAmount: computedTotal,
+          closingBalance: newClosingBalance,
         },
       });
+
+      await recalculateSupplierBalances(tx, existing.supplierId);
 
       return tx.purchase.findUnique({
         where: { purchaseId },
@@ -300,7 +370,9 @@ export const updatePurchase = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Purchase not found" });
     }
     if (msg === "PRODUCT_NOT_FOUND" || msg === "PRODUCT_MISSING") {
-      return res.status(400).json({ message: "One or more products were not found" });
+      return res
+        .status(400)
+        .json({ message: "One or more products were not found" });
     }
     if (msg.startsWith("INSUFFICIENT_STOCK_TO_REVERT|")) {
       const [, name, avail, req] = msg.split("|");
@@ -347,6 +419,8 @@ export const deletePurchase = async (req: Request, res: Response) => {
 
       await tx.purchaseItem.deleteMany({ where: { purchaseId } });
       await tx.purchase.delete({ where: { purchaseId } });
+
+      await recalculateSupplierBalances(tx, existing.supplierId);
     });
 
     res.json({ message: "Purchase deleted", purchaseId });
@@ -356,7 +430,9 @@ export const deletePurchase = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Purchase not found" });
     }
     if (msg === "PRODUCT_MISSING") {
-      return res.status(400).json({ message: "One or more products were not found" });
+      return res
+        .status(400)
+        .json({ message: "One or more products were not found" });
     }
     if (msg.startsWith("INSUFFICIENT_STOCK_TO_REVERT|")) {
       const [, name, avail, req] = msg.split("|");
@@ -377,37 +453,38 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
     const endOfToday = new Date(now);
     endOfToday.setHours(23, 59, 59, 999);
 
-    const [todayAgg, totalAgg, products, purchaseItems, purchases] = await Promise.all([
-      prisma.purchase.aggregate({
-        where: { purchaseDate: { gte: startOfToday, lte: endOfToday } },
-        _sum: { totalAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.purchase.aggregate({
-        _sum: { totalAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.products.findMany({
-        select: {
-          productId: true,
-          name: true,
-          stockQuantity: true,
-          lowStockQuantity: true,
-          cp: true,
-        },
-      }),
-      prisma.purchaseItem.findMany({
-        select: {
-          productId: true,
-          quantity: true,
-          totalCost: true,
-          product: { select: { name: true } },
-        },
-      }),
-      prisma.purchase.findMany({
-        select: { purchaseDate: true, totalAmount: true },
-      }),
-    ]);
+    const [todayAgg, totalAgg, products, purchaseItems, purchases] =
+      await Promise.all([
+        prisma.purchase.aggregate({
+          where: { purchaseDate: { gte: startOfToday, lte: endOfToday } },
+          _sum: { totalAmount: true },
+          _count: { _all: true },
+        }),
+        prisma.purchase.aggregate({
+          _sum: { totalAmount: true },
+          _count: { _all: true },
+        }),
+        prisma.products.findMany({
+          select: {
+            productId: true,
+            name: true,
+            stockQuantity: true,
+            lowStockQuantity: true,
+            cp: true,
+          },
+        }),
+        prisma.purchaseItem.findMany({
+          select: {
+            productId: true,
+            quantity: true,
+            totalCost: true,
+            product: { select: { name: true } },
+          },
+        }),
+        prisma.purchase.findMany({
+          select: { purchaseDate: true, totalAmount: true },
+        }),
+      ]);
 
     const stockValue = products.reduce(
       (sum, product) => sum + product.stockQuantity * (product.cp ?? 0),
@@ -417,7 +494,9 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
       (sum, product) => sum + product.stockQuantity,
       0,
     );
-    const outOfStockCount = products.filter((product) => product.stockQuantity === 0).length;
+    const outOfStockCount = products.filter(
+      (product) => product.stockQuantity === 0,
+    ).length;
     const lowStockCount = products.filter(
       (product) =>
         product.stockQuantity > 0 &&
@@ -426,7 +505,12 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
 
     const purchasedProductMap = new Map<
       string,
-      { productId: string; productName: string; totalQuantity: number; totalCost: number }
+      {
+        productId: string;
+        productName: string;
+        totalQuantity: number;
+        totalCost: number;
+      }
     >();
     purchaseItems.forEach((item) => {
       const existing = purchasedProductMap.get(item.productId);
@@ -466,11 +550,13 @@ export const getPurchaseAnalytics = async (_req: Request, res: Response) => {
       }
     });
 
-    const monthlyPurchaseTrend = Array.from(monthlyTrendMap.values()).sort((a, b) => {
-      const dA = new Date(`01 ${a.month}`);
-      const dB = new Date(`01 ${b.month}`);
-      return dA.getTime() - dB.getTime();
-    });
+    const monthlyPurchaseTrend = Array.from(monthlyTrendMap.values()).sort(
+      (a, b) => {
+        const dA = new Date(`01 ${a.month}`);
+        const dB = new Date(`01 ${b.month}`);
+        return dA.getTime() - dB.getTime();
+      },
+    );
 
     res.json({
       totalPurchasesToday: todayAgg._sum.totalAmount ?? 0,

@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE "Billing" ADD COLUMN     "paidAmount" DOUBLE PRECISION NOT NULL DEFAULT 0;

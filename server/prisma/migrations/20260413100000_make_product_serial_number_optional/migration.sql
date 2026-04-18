@@ -1,2 +1,0 @@
-ALTER TABLE "Products"
-ALTER COLUMN "serialNumber" DROP NOT NULL;

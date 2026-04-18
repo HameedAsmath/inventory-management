@@ -183,7 +183,7 @@ export function generateStatementPdf(
       num: m,
       billId: m + 25,
       date: m + cw * 0.48,
-      total: m + cw * 0.70,
+      total: m + cw * 0.7,
     };
     const dateW = cw * 0.16;
     const numW = cw * 0.18;
@@ -262,7 +262,14 @@ export function generateStatementPdf(
     t(doc, "Opening Balance", leftX, y + 12);
     doc.font("Helvetica-Bold").fillColor(C.dark);
     doc.fontSize(11);
-    tw(doc, `Rs. ${data.openingBalance.toFixed(2)}`, m, y + 10, cw - 20, "right");
+    tw(
+      doc,
+      `Rs. ${data.openingBalance.toFixed(2)}`,
+      m,
+      y + 10,
+      cw - 20,
+      "right",
+    );
 
     doc.font("Helvetica").fontSize(9).fillColor(C.med);
     t(doc, "Bill Amount", leftX, y + 36);
@@ -273,7 +280,14 @@ export function generateStatementPdf(
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#92400e");
     t(doc, "Current Balance", leftX, y + 64);
     doc.fontSize(13);
-    tw(doc, `Rs. ${data.currentBalance.toFixed(2)}`, m, y + 62, cw - 20, "right");
+    tw(
+      doc,
+      `Rs. ${data.currentBalance.toFixed(2)}`,
+      m,
+      y + 62,
+      cw - 20,
+      "right",
+    );
     y += 98;
 
     // ===== TOTALS =====

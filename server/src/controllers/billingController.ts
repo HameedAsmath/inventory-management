@@ -424,11 +424,37 @@ export const updateBilling = async (req: Request, res: Response) => {
         });
       }
 
+      // Recompute this bill's balance snapshot so that the invoice PDF
+      // reflects the edited total. Preserve the original openingBalance
+      // (it's a historical fact: what the customer owed before this bill)
+      // and the credit that was applied at creation time, so that only the
+      // delta of totalAmount flows into closingBalance.
+      const oldTotal = Number(existing.totalAmount || 0);
+      const openingBalance = Math.max(0, Number(existing.openingBalance || 0));
+      const oldClosingBalance = Math.max(
+        0,
+        Number(existing.closingBalance || 0),
+      );
+      const oldOutstandingIncrease = Math.max(
+        0,
+        oldClosingBalance - openingBalance,
+      );
+      const creditAppliedOnThisBill = Math.max(
+        0,
+        oldTotal - oldOutstandingIncrease,
+      );
+      const newOutstandingIncrease = Math.max(
+        0,
+        computedTotalAmount - creditAppliedOnThisBill,
+      );
+      const newClosingBalance = openingBalance + newOutstandingIncrease;
+
       await tx.billing.update({
         where: { billingId },
         data: {
           totalAmount: computedTotalAmount,
           pnfCharges: pnfCharges || 0,
+          closingBalance: newClosingBalance,
         },
       });
 

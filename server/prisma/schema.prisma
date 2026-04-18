@@ -59,24 +59,29 @@ model ExpenseSummary {
 }
 
 model Customer {
-  customerId       String            @id @default(uuid())
-  name             String
-  email            String?           @unique
-  phone            String?
-  address          String?
-  totalOutstanding Float             @default(0)
-  totalCredit      Float             @default(0)
-  Billing          Billing[]
-  payments         CustomerPayment[]
+  customerId         String            @id @default(uuid())
+  name               String
+  email              String?           @unique
+  phone              String?
+  address            String?
+  openingOutstanding Float             @default(0)
+  totalOutstanding   Float             @default(0)
+  totalCredit        Float             @default(0)
+  Billing            Billing[]
+  payments           CustomerPayment[]
 }
 
 model Supplier {
-  supplierId String     @id @default(uuid())
-  name       String
-  phone      String?
-  address    String?
-  createdAt  DateTime   @default(now())
-  purchases  Purchase[]
+  supplierId         String            @id @default(uuid())
+  name               String
+  phone              String?
+  address            String?
+  openingOutstanding Float             @default(0)
+  totalOutstanding   Float             @default(0)
+  totalCredit        Float             @default(0)
+  createdAt          DateTime          @default(now())
+  purchases          Purchase[]
+  payments           SupplierPayment[]
 }
 
 enum PaymentStatus {
@@ -122,14 +127,26 @@ model Expense {
 }
 
 model Purchase {
-  purchaseId    String         @id @default(uuid())
-  supplierId    String
-  purchaseDate  DateTime
-  notes         String?
-  totalAmount   Float
-  createdAt     DateTime       @default(now())
-  supplier      Supplier       @relation(fields: [supplierId], references: [supplierId])
-  purchaseItems PurchaseItem[]
+  purchaseId     String         @id @default(uuid())
+  supplierId     String
+  purchaseDate   DateTime
+  notes          String?
+  totalAmount    Float
+  openingBalance Float          @default(0)
+  closingBalance Float          @default(0)
+  createdAt      DateTime       @default(now())
+  supplier       Supplier       @relation(fields: [supplierId], references: [supplierId])
+  purchaseItems  PurchaseItem[]
+}
+
+model SupplierPayment {
+  paymentId  String      @id @default(uuid())
+  supplierId String
+  amount     Float
+  type       PaymentType
+  timestamp  DateTime    @default(now())
+
+  supplier Supplier @relation(fields: [supplierId], references: [supplierId])
 }
 
 model PurchaseItem {

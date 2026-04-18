@@ -55,7 +55,8 @@ const CustomerBillsModal = ({
   customerName: string;
   onClose: () => void;
 }) => {
-  const { data: customerData, isLoading } = useGetCustomerLedgerQuery(customerId);
+  const { data: customerData, isLoading } =
+    useGetCustomerLedgerQuery(customerId);
   const [sendStatementEmail, { isLoading: isSending }] =
     useSendCustomerStatementEmailMutation();
   const [recordPayment, { isLoading: isRecording }] =
@@ -73,10 +74,19 @@ const CustomerBillsModal = ({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const billings = useMemo(() => customerData?.bills ?? [], [customerData?.bills]);
+  const billings = useMemo(
+    () => customerData?.bills ?? [],
+    [customerData?.bills],
+  );
   const payments = useMemo(
     () => customerData?.payments ?? [],
     [customerData?.payments],
+  );
+  const openingOutstanding = Math.max(
+    0,
+    customerData?.openingOutstanding ??
+      customerData?.customer?.openingOutstanding ??
+      0,
   );
   const filteredBills = useMemo(() => {
     return billings.filter((bill) => {
@@ -104,7 +114,15 @@ const CustomerBillsModal = ({
     });
   }, [payments, dateFrom, dateTo]);
 
-  const summaryTotal = filteredBills.reduce((s, b) => s + b.totalAmount, 0);
+  // When viewing the full ledger (no date filters), include the opening
+  // outstanding in the totals so the figures match the customer's real balance.
+  const includeOpening = !dateFrom && !dateTo;
+  const billsTotalInPeriod = filteredBills.reduce(
+    (s, b) => s + b.totalAmount,
+    0,
+  );
+  const summaryTotal =
+    billsTotalInPeriod + (includeOpening ? openingOutstanding : 0);
   const summaryPaid = filteredPayments.reduce((s, p) => s + p.amount, 0);
   // Match server recalculateCustomerBalances: same formula on filtered rows as on full ledger
   const summaryOutstanding = Math.max(0, summaryTotal - summaryPaid);
@@ -238,39 +256,66 @@ const CustomerBillsModal = ({
 
           {/* SUMMARY */}
           {!isLoading && customerData && (
-            <div className="grid grid-cols-4 gap-4 px-6 pt-5 pb-2">
-              <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-center">
-                <p className="text-xs text-blue-600 font-medium uppercase tracking-wider">
-                  Billed
-                </p>
-                <p className="text-lg font-bold text-blue-800 mt-0.5">
-                  ₹{summaryTotal.toFixed(2)}
-                </p>
+            <div className="px-6 pt-5 pb-2 space-y-3">
+              <div className="grid grid-cols-4 gap-4">
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-center">
+                  <p className="text-xs text-blue-600 font-medium uppercase tracking-wider">
+                    Billed
+                  </p>
+                  <p className="text-lg font-bold text-blue-800 mt-0.5">
+                    ₹{summaryTotal.toFixed(2)}
+                  </p>
+                  {includeOpening && openingOutstanding > 0 && (
+                    <p className="text-[10px] text-blue-500 mt-0.5">
+                      incl. opening ₹{openingOutstanding.toFixed(2)}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-center">
+                  <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider">
+                    Received
+                  </p>
+                  <p className="text-lg font-bold text-emerald-800 mt-0.5">
+                    ₹{summaryPaid.toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-amber-50 border border-amber-100 p-3 text-center">
+                  <p className="text-xs text-amber-600 font-medium uppercase tracking-wider">
+                    Outstanding
+                  </p>
+                  <p className="text-lg font-bold text-amber-800 mt-0.5">
+                    ₹{summaryOutstanding.toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-center">
+                  <p className="text-xs text-indigo-600 font-medium uppercase tracking-wider">
+                    Credit
+                  </p>
+                  <p className="text-lg font-bold text-indigo-800 mt-0.5">
+                    ₹{summaryCredit.toFixed(2)}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-center">
-                <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider">
-                  Received
-                </p>
-                <p className="text-lg font-bold text-emerald-800 mt-0.5">
-                  ₹{summaryPaid.toFixed(2)}
-                </p>
-              </div>
-              <div className="rounded-lg bg-amber-50 border border-amber-100 p-3 text-center">
-                <p className="text-xs text-amber-600 font-medium uppercase tracking-wider">
-                  Outstanding
-                </p>
-                <p className="text-lg font-bold text-amber-800 mt-0.5">
-                  ₹{summaryOutstanding.toFixed(2)}
-                </p>
-              </div>
-              <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-center">
-                <p className="text-xs text-indigo-600 font-medium uppercase tracking-wider">
-                  Credit
-                </p>
-                <p className="text-lg font-bold text-indigo-800 mt-0.5">
-                  ₹{summaryCredit.toFixed(2)}
-                </p>
-              </div>
+              {openingOutstanding > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Opening balance: customer carried{" "}
+                    <span className="font-semibold">
+                      ₹{openingOutstanding.toFixed(2)}
+                    </span>{" "}
+                    outstanding before the first bill.
+                    {!includeOpening && (
+                      <>
+                        {" "}
+                        <span className="font-medium">
+                          Excluded from the filtered totals above.
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -432,95 +477,107 @@ const CustomerBillsModal = ({
                   ) : (
                     <div className="space-y-2 pr-1">
                       {filteredPayments.map((payment) => {
-                        const paymentLocked = isPaymentLocked(payment.timestamp);
+                        const paymentLocked = isPaymentLocked(
+                          payment.timestamp,
+                        );
                         return (
                           <div
                             key={payment.paymentId}
                             className="rounded-lg border border-gray-200 px-3 py-2"
                           >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-gray-900">
-                                {payment.type === "advance" ? "Advance" : "Payment"}
-                              </p>
-                              <p className="text-xs text-gray-400 truncate">
-                                {payment.paymentId} · {formatDate(payment.timestamp)}
-                              </p>
-                              {paymentLocked && (
-                                <p className="text-xs text-amber-600 mt-1">
-                                  Locked: bill already created after this payment
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {payment.type === "advance"
+                                    ? "Advance"
+                                    : "Payment"}
                                 </p>
+                                <p className="text-xs text-gray-400 truncate">
+                                  {payment.paymentId} ·{" "}
+                                  {formatDate(payment.timestamp)}
+                                </p>
+                                {paymentLocked && (
+                                  <p className="text-xs text-amber-600 mt-1">
+                                    Locked: bill already created after this
+                                    payment
+                                  </p>
+                                )}
+                              </div>
+                              {editingPaymentId === payment.paymentId ? (
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={editingAmountInput}
+                                    onChange={(e) =>
+                                      setEditingAmountInput(e.target.value)
+                                    }
+                                    className="w-24 rounded border border-gray-300 px-2 py-1 text-sm text-right"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSavePaymentEdit(payment.paymentId)
+                                    }
+                                    disabled={isUpdatingPayment}
+                                    className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPaymentId(null);
+                                      setEditingAmountInput("");
+                                    }}
+                                    className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <p className="text-sm font-semibold text-emerald-600">
+                                    ₹{payment.amount.toFixed(2)}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (paymentLocked) {
+                                        toast.error(
+                                          "Cannot edit payment already used by bill balances",
+                                        );
+                                        return;
+                                      }
+                                      handleStartEditPayment(
+                                        payment.paymentId,
+                                        payment.amount,
+                                      );
+                                    }}
+                                    disabled={paymentLocked}
+                                    className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDeletePayment(
+                                        payment.paymentId,
+                                        payment.timestamp,
+                                      )
+                                    }
+                                    disabled={
+                                      isDeletingPayment || paymentLocked
+                                    }
+                                    className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
                               )}
                             </div>
-                            {editingPaymentId === payment.paymentId ? (
-                              <div className="flex items-center gap-2 shrink-0">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingAmountInput}
-                                  onChange={(e) => setEditingAmountInput(e.target.value)}
-                                  className="w-24 rounded border border-gray-300 px-2 py-1 text-sm text-right"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleSavePaymentEdit(payment.paymentId)}
-                                  disabled={isUpdatingPayment}
-                                  className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingPaymentId(null);
-                                    setEditingAmountInput("");
-                                  }}
-                                  className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 shrink-0">
-                                <p className="text-sm font-semibold text-emerald-600">
-                                  ₹{payment.amount.toFixed(2)}
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (paymentLocked) {
-                                      toast.error(
-                                        "Cannot edit payment already used by bill balances",
-                                      );
-                                      return;
-                                    }
-                                    handleStartEditPayment(
-                                      payment.paymentId,
-                                      payment.amount,
-                                    );
-                                  }}
-                                  disabled={paymentLocked}
-                                  className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleDeletePayment(
-                                      payment.paymentId,
-                                      payment.timestamp,
-                                    )
-                                  }
-                                  disabled={isDeletingPayment || paymentLocked}
-                                  className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </div>
                           </div>
                         );
                       })}
@@ -611,7 +668,8 @@ const Customers = () => {
     );
     return {
       id: openCustomerId,
-      name: matchedCustomer?.name || openCustomerNameFromQuery || openCustomerId,
+      name:
+        matchedCustomer?.name || openCustomerNameFromQuery || openCustomerId,
     };
   }, [searchParams, customers]);
 
@@ -853,7 +911,8 @@ const Customers = () => {
                   .reduce((acc, ch) => acc + ch.charCodeAt(0), 0) %
                 colors.length;
 
-              const pendingDue = customer.totalOutstanding ?? customer.balance ?? 0;
+              const pendingDue =
+                customer.totalOutstanding ?? customer.balance ?? 0;
 
               return (
                 <div

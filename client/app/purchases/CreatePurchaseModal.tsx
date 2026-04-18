@@ -37,13 +37,17 @@ type PurchaseItemInput = {
   productName: string;
   quantityInput: string;
   costPrice: number;
-  /** Cap for quantity (same rule as billing: on-hand stock when in stock). */
+  /**
+   * Cap for quantity. Purchases add to stock (they don't consume it), so
+   * there's no real upper bound — kept as a field only so the rest of the
+   * shared helpers stay generic. Always Number.MAX_SAFE_INTEGER for purchases.
+   */
   maxStock: number;
   stockQuantity: number;
 };
 
-function purchaseLineMaxStock(stockQuantity: number): number {
-  return stockQuantity > 0 ? stockQuantity : Number.MAX_SAFE_INTEGER;
+function purchaseLineMaxStock(): number {
+  return Number.MAX_SAFE_INTEGER;
 }
 
 /** Qty used for line totals while typing: empty / invalid → 0; capped at maxStock. */
@@ -241,7 +245,7 @@ const CreatePurchaseModal = ({
         productName: product.name,
         quantityInput: "1",
         costPrice: product.cp ?? 0,
-        maxStock: purchaseLineMaxStock(product.stockQuantity),
+        maxStock: purchaseLineMaxStock(),
         stockQuantity: product.stockQuantity,
       },
     ]);
@@ -390,7 +394,7 @@ const CreatePurchaseModal = ({
         editingPurchase.purchaseItems.map((line) => {
           const p = line.product;
           const sq = p.stockQuantity ?? 0;
-          const maxStock = purchaseLineMaxStock(sq + line.quantity);
+          const maxStock = purchaseLineMaxStock();
           return {
             productId: line.productId,
             productName: p.name,
@@ -427,17 +431,11 @@ const CreatePurchaseModal = ({
     setItems((prev) =>
       prev.map((item) => {
         if (item.productId !== updated.productId) return item;
-        const t = item.quantityInput.trim();
-        const lineQty = t === "" ? 0 : parseInt(t, 10);
-        const safeLine = isNaN(lineQty) ? 0 : lineQty;
-        const base = updated.stockQuantity ?? 0;
-        const maxStock = purchaseLineMaxStock(
-          isEditMode ? base + safeLine : base,
-        );
+        const maxStock = purchaseLineMaxStock();
         const prevQty = parseInt(item.quantityInput.trim(), 10);
         const safePrev =
           item.quantityInput.trim() === "" || isNaN(prevQty) ? 1 : prevQty;
-        const nextQty = Math.max(1, Math.min(safePrev, maxStock));
+        const nextQty = Math.max(1, safePrev);
         return {
           ...item,
           productName: updated.name,

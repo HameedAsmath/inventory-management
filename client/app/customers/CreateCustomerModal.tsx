@@ -1,7 +1,8 @@
 "use client";
 
 import React, { ChangeEvent, FormEvent, useState, useRef } from "react";
-import { X, User, Mail, MapPin, Edit2, Plus } from "lucide-react";
+import { X, User, Mail, MapPin, Edit2, Plus, Wallet } from "lucide-react";
+import { toast } from "sonner";
 import type { Customer } from "../state/api";
 
 type CustomerFormData = {
@@ -9,6 +10,7 @@ type CustomerFormData = {
   name: string;
   email: string;
   address: string;
+  openingOutstanding: string;
 };
 
 export type CreateCustomerSubmitPayload = {
@@ -16,12 +18,14 @@ export type CreateCustomerSubmitPayload = {
   name: string;
   address: string;
   email?: string;
+  openingOutstanding: number;
 };
 
 export type UpdateCustomerSubmitPayload = {
   name: string;
   address: string;
   email?: string;
+  openingOutstanding: number;
 };
 
 type CreateCustomerModalProps = {
@@ -47,6 +51,7 @@ const CreateCustomerModal = ({
     name: "",
     email: "",
     address: "",
+    openingOutstanding: "",
   });
 
   const isEditing = !!editingCustomer;
@@ -61,9 +66,19 @@ const CreateCustomerModal = ({
         name: editingCustomer.name,
         email: editingCustomer.email || "",
         address: editingCustomer.address || "",
+        openingOutstanding:
+          typeof editingCustomer.openingOutstanding === "number"
+            ? String(editingCustomer.openingOutstanding)
+            : "",
       });
     } else {
-      setFormData({ customerId: "", name: "", email: "", address: "" });
+      setFormData({
+        customerId: "",
+        name: "",
+        email: "",
+        address: "",
+        openingOutstanding: "",
+      });
     }
   }
 
@@ -82,10 +97,22 @@ const CreateCustomerModal = ({
     const trimmedEmail = formData.email.trim();
     const emailField = trimmedEmail ? { email: trimmedEmail } : {};
 
+    const rawOpening = formData.openingOutstanding.trim();
+    let openingOutstanding = 0;
+    if (rawOpening !== "") {
+      const parsed = Number(rawOpening);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        toast.error("Opening outstanding must be a non-negative number");
+        return;
+      }
+      openingOutstanding = parsed;
+    }
+
     if (isEditing && onUpdate) {
       onUpdate(editingCustomer.customerId, {
         name: formData.name,
         address: formData.address,
+        openingOutstanding,
         ...emailField,
       });
     } else {
@@ -93,10 +120,17 @@ const CreateCustomerModal = ({
         customerId: formData.customerId,
         name: formData.name,
         address: formData.address,
+        openingOutstanding,
         ...emailField,
       });
     }
-    setFormData({ customerId: "", name: "", email: "", address: "" });
+    setFormData({
+      customerId: "",
+      name: "",
+      email: "",
+      address: "",
+      openingOutstanding: "",
+    });
     onClose();
   };
 
@@ -181,6 +215,30 @@ const CreateCustomerModal = ({
                   rows={2}
                 />
               </div>
+            </div>
+
+            {/* OPENING OUTSTANDING */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Opening Outstanding
+              </label>
+              <div className="relative">
+                <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="number"
+                  name="openingOutstanding"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  onChange={handleChange}
+                  value={formData.openingOutstanding}
+                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Amount this customer already owes before the first bill. New
+                bills will accumulate on top of this.
+              </p>
             </div>
 
             {/* ACTIONS */}
