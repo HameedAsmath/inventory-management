@@ -1,7 +1,34 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
+import { generateStatementPdf } from "../lib/generateStatementPdf.js";
+import type { ShopDetails } from "../lib/generateInvoicePdf.js";
+import { sendSupplierStatementEmail } from "../lib/sendEmail.js";
 
 const db: any = prisma;
+
+async function getUserShopDetails(
+  userId?: string,
+): Promise<ShopDetails | undefined> {
+  if (!userId) return undefined;
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      shopName: true,
+      shopAddress: true,
+      shopPincode: true,
+      shopContact: true,
+      shopGst: true,
+    },
+  });
+  if (!user) return undefined;
+  return {
+    name: user.shopName,
+    address: user.shopAddress,
+    pincode: user.shopPincode,
+    contact: user.shopContact,
+    gst: user.shopGst,
+  };
+}
 
 export async function recalculateSupplierBalances(
   tx: any,
@@ -450,5 +477,208 @@ export const getSupplierLedger = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching supplier ledger:", error);
     res.status(500).json({ message: "Error fetching supplier ledger" });
+  }
+};
+
+export const getSupplierStatementPdf = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const supplierId = String(req.params.supplierId);
+    const supplier = await db.supplier.findUnique({ where: { supplierId } });
+    if (!supplier) {
+      return res.status(404).json({ message: "Supplier not found" });
+    }
+
+    const q = {
+      from: req.query.from?.toString(),
+      to: req.query.to?.toString(),
+    };
+    const where = buildPurchaseWhere(supplierId, q);
+    const purchases = await db.purchase.findMany({
+      where,
+      orderBy: { purchaseDate: "desc" },
+    });
+
+    const payments = await db.supplierPayment.findMany({
+      where: {
+        supplierId,
+        ...(q.from || q.to
+          ? {
+              timestamp: {
+                ...(q.from ? { gte: new Date(q.from) } : {}),
+                ...(q.to
+                  ? {
+                      lte: (() => {
+                        const toEnd = new Date(q.to!);
+                        toEnd.setHours(23, 59, 59, 999);
+                        return toEnd;
+                      })(),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    const totalAmount = purchases.reduce(
+      (s: number, p: any) => s + p.totalAmount,
+      0,
+    );
+    const totalPaid = payments.reduce((s: number, p: any) => s + p.amount, 0);
+    const openingBalance = Math.max(
+      0,
+      supplier.totalOutstanding - totalAmount,
+    );
+    const shop = await getUserShopDetails(req.userId);
+
+    const pdfBuffer = await generateStatementPdf(
+      {
+        kind: "supplier",
+        customer: {
+          name: supplier.name,
+          email: null,
+          address: supplier.address,
+        },
+        bills: purchases.map((p: any) => ({
+          billingId: p.purchaseId,
+          totalAmount: p.totalAmount,
+          timestamp: p.purchaseDate,
+        })),
+        payments: payments.map((p: any) => ({
+          paymentId: p.paymentId,
+          amount: p.amount,
+          type: p.type,
+          timestamp: p.timestamp,
+        })),
+        totalAmount,
+        totalPaid,
+        outstanding: supplier.totalOutstanding,
+        credit: supplier.totalCredit,
+        openingBalance,
+        billAmount: totalAmount,
+        currentBalance: supplier.totalOutstanding,
+      },
+      shop,
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="supplier-statement-${supplier.name.replace(/\s+/g, "_")}.pdf"`,
+    );
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("Error generating supplier statement PDF:", error);
+    res
+      .status(500)
+      .json({ message: "Error generating supplier statement PDF" });
+  }
+};
+
+export const emailSupplierStatement = async (req: Request, res: Response) => {
+  try {
+    const supplierId = String(req.params.supplierId);
+    const { email, from, to } = req.body;
+
+    const supplier = await db.supplier.findUnique({ where: { supplierId } });
+    if (!supplier) {
+      return res.status(404).json({ message: "Supplier not found" });
+    }
+
+    const recipientEmail = email;
+    if (!recipientEmail) {
+      return res.status(400).json({ message: "No email address provided" });
+    }
+
+    const where = buildPurchaseWhere(supplierId, { from, to });
+    const purchases = await db.purchase.findMany({
+      where,
+      orderBy: { purchaseDate: "desc" },
+    });
+
+    const payments = await db.supplierPayment.findMany({
+      where: {
+        supplierId,
+        ...(from || to
+          ? {
+              timestamp: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to
+                  ? {
+                      lte: (() => {
+                        const toEnd = new Date(to);
+                        toEnd.setHours(23, 59, 59, 999);
+                        return toEnd;
+                      })(),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    const totalAmount = purchases.reduce(
+      (s: number, p: any) => s + p.totalAmount,
+      0,
+    );
+    const totalPaid = payments.reduce((s: number, p: any) => s + p.amount, 0);
+    const openingBalance = Math.max(
+      0,
+      supplier.totalOutstanding - totalAmount,
+    );
+    const shop = await getUserShopDetails(req.userId);
+
+    const pdfBuffer = await generateStatementPdf(
+      {
+        kind: "supplier",
+        customer: {
+          name: supplier.name,
+          email: null,
+          address: supplier.address,
+        },
+        bills: purchases.map((p: any) => ({
+          billingId: p.purchaseId,
+          totalAmount: p.totalAmount,
+          timestamp: p.purchaseDate,
+        })),
+        payments: payments.map((p: any) => ({
+          paymentId: p.paymentId,
+          amount: p.amount,
+          type: p.type,
+          timestamp: p.timestamp,
+        })),
+        totalAmount,
+        totalPaid,
+        outstanding: supplier.totalOutstanding,
+        credit: supplier.totalCredit,
+        openingBalance,
+        billAmount: totalAmount,
+        currentBalance: supplier.totalOutstanding,
+      },
+      shop,
+    );
+
+    await sendSupplierStatementEmail({
+      to: recipientEmail,
+      supplierName: supplier.name,
+      totalAmount,
+      totalPaid,
+      outstanding: supplier.totalOutstanding,
+      purchaseCount: purchases.length,
+      pdfBuffer,
+    });
+
+    res.json({ message: `Statement emailed to ${recipientEmail}` });
+  } catch (error: any) {
+    console.error("Error emailing supplier statement:", error);
+    res.status(500).json({
+      message: error.message || "Error sending supplier statement email",
+    });
   }
 };

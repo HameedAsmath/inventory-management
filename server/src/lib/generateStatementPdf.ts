@@ -29,6 +29,46 @@ interface StatementData {
   openingBalance: number;
   billAmount: number;
   currentBalance: number;
+  kind?: "customer" | "supplier";
+}
+
+interface StatementLabels {
+  statementTitle: string;
+  transactionsSection: string;
+  idColumn: string;
+  billAmountRow: string;
+  totalRow: string;
+  paidLabel: string;
+  outstandingPositive: string;
+  outstandingZero: string;
+  creditLabel: string;
+}
+
+function getLabels(kind: "customer" | "supplier"): StatementLabels {
+  if (kind === "supplier") {
+    return {
+      statementTitle: "SUPPLIER STATEMENT",
+      transactionsSection: "PURCHASES",
+      idColumn: "PURCHASE ID",
+      billAmountRow: "Purchase Amount",
+      totalRow: "Total Purchased",
+      paidLabel: "Total Paid",
+      outstandingPositive: "PAYABLE",
+      outstandingZero: "ALL CLEAR",
+      creditLabel: "CREDIT",
+    };
+  }
+  return {
+    statementTitle: "ACCOUNT STATEMENT",
+    transactionsSection: "BILLS",
+    idColumn: "BILL ID",
+    billAmountRow: "Bill Amount",
+    totalRow: "Total Billed",
+    paidLabel: "Total Paid",
+    outstandingPositive: "OUTSTANDING",
+    outstandingZero: "ALL CLEAR",
+    creditLabel: "CREDIT",
+  };
 }
 
 function getShop(shop?: ShopDetails): ShopDetails {
@@ -95,6 +135,7 @@ export function generateStatementPdf(
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const SHOP = getShop(shop);
+    const labels = getLabels(data.kind ?? "customer");
     const rowH = 22;
     const headerH = 70;
     const customerH = 50;
@@ -142,7 +183,7 @@ export function generateStatementPdf(
     t(doc, SHOP.name.toUpperCase(), m, 22);
 
     doc.font("Helvetica-Bold").fontSize(16).fillColor(C.white);
-    tw(doc, "ACCOUNT STATEMENT", m, 24, cw, "right");
+    tw(doc, labels.statementTitle, m, 24, cw, "right");
 
     y = 85;
 
@@ -189,7 +230,7 @@ export function generateStatementPdf(
     const numW = cw * 0.18;
 
     doc.font("Helvetica-Bold").fontSize(9).fillColor(C.dark);
-    t(doc, "BILLS", m, y - 2);
+    t(doc, labels.transactionsSection, m, y - 2);
     y += 14;
     doc.save();
     doc.rect(m, y - 4, cw, 20).fill(C.bgLight);
@@ -197,7 +238,7 @@ export function generateStatementPdf(
 
     doc.font("Helvetica-Bold").fontSize(7).fillColor(C.med);
     t(doc, "#", cols.num + 4, y + 3);
-    t(doc, "BILL ID", cols.billId, y + 3);
+    t(doc, labels.idColumn, cols.billId, y + 3);
     tw(doc, "DATE", cols.date, y + 3, dateW, "center");
     tw(doc, "TOTAL", cols.total, y + 3, numW, "right");
     y += 20;
@@ -272,7 +313,7 @@ export function generateStatementPdf(
     );
 
     doc.font("Helvetica").fontSize(9).fillColor(C.med);
-    t(doc, "Bill Amount", leftX, y + 36);
+    t(doc, labels.billAmountRow, leftX, y + 36);
     doc.font("Helvetica-Bold").fillColor(C.dark).fontSize(11);
     tw(doc, `Rs. ${data.billAmount.toFixed(2)}`, m, y + 34, cw - 20, "right");
 
@@ -296,7 +337,7 @@ export function generateStatementPdf(
     const tW = cw * 0.5;
 
     doc.font("Helvetica").fontSize(9).fillColor(C.med);
-    tw(doc, "Total Billed", tX, y, tW * 0.5, "right");
+    tw(doc, labels.totalRow, tX, y, tW * 0.5, "right");
     doc.font("Helvetica-Bold").fillColor(C.dark);
     tw(
       doc,
@@ -331,7 +372,12 @@ export function generateStatementPdf(
     doc.restore();
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor(textColor);
-    t(doc, data.outstanding > 0 ? "OUTSTANDING" : "ALL CLEAR", tX + 6, y + 4);
+    t(
+      doc,
+      data.outstanding > 0 ? labels.outstandingPositive : labels.outstandingZero,
+      tX + 6,
+      y + 4,
+    );
     doc.fontSize(13);
     tw(doc, `Rs. ${data.outstanding.toFixed(2)}`, tX, y + 2, tW, "right");
 
@@ -340,7 +386,7 @@ export function generateStatementPdf(
     doc.roundedRect(tX - 5, y - 4, tW + 10, 26, 4).fill("#dbeafe");
     doc.restore();
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e40af");
-    t(doc, "CREDIT", tX + 6, y + 4);
+    t(doc, labels.creditLabel, tX + 6, y + 4);
     doc.fontSize(13);
     tw(doc, `Rs. ${data.credit.toFixed(2)}`, tX, y + 2, tW, "right");
 

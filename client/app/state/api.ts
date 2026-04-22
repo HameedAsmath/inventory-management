@@ -734,6 +734,21 @@ export const api = createApi({
         body,
       }),
     }),
+    sendSupplierStatementEmail: build.mutation<
+      { message: string },
+      {
+        supplierId: string;
+        email: string;
+        from?: string;
+        to?: string;
+      }
+    >({
+      query: ({ supplierId, ...body }) => ({
+        url: `/suppliers/${supplierId}/statement/email`,
+        method: "POST",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -799,4 +814,5 @@ export const {
   useDeleteBillingMutation,
   useSendBillingEmailMutation,
   useSendCustomerStatementEmailMutation,
+  useSendSupplierStatementEmailMutation,
 } = api;

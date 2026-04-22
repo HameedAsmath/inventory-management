@@ -11,6 +11,7 @@ import {
   useGetSupplierLedgerQuery,
   useGetSuppliersQuery,
   useRecordSupplierPaymentMutation,
+  useSendSupplierStatementEmailMutation,
   useUpdateSupplierMutation,
   useUpdateSupplierPaymentMutation,
 } from "@/app/state/api";
@@ -19,8 +20,10 @@ import {
   Clock,
   DollarSign,
   Edit2,
+  FileDown,
   FileText,
   Loader2,
+  Mail,
   MapPin,
   Phone,
   Plus,
@@ -72,7 +75,10 @@ const SupplierFormModal = ({
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
 }) => (
   <div className="fixed inset-0 z-50 overflow-y-auto">
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    />
     <div className="flex min-h-full items-start justify-center p-4 pt-10">
       <div className="relative w-full max-w-xl rounded-2xl bg-white shadow-2xl ring-1 ring-gray-900/5 mb-10">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
@@ -182,6 +188,10 @@ const SupplierLedgerModal = ({
     useUpdateSupplierPaymentMutation();
   const [deletePayment, { isLoading: isDeletingPayment }] =
     useDeleteSupplierPaymentMutation();
+  const [sendStatementEmail, { isLoading: isSending }] =
+    useSendSupplierStatementEmailMutation();
+
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   const [amountInput, setAmountInput] = useState("");
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
@@ -237,6 +247,35 @@ const SupplierLedgerModal = ({
   const clearFilters = () => {
     setDateFrom("");
     setDateTo("");
+  };
+
+  const statementFilterParams = new URLSearchParams();
+  if (dateFrom) statementFilterParams.set("from", dateFrom);
+  if (dateTo) statementFilterParams.set("to", dateTo);
+  const statementQs = statementFilterParams.toString();
+
+  const handleOpenPdf = () => {
+    const url = `${apiBaseUrl}/suppliers/${supplierId}/statement/pdf${
+      statementQs ? `?${statementQs}` : ""
+    }`;
+    window.open(url, "_blank");
+  };
+
+  const handleSendEmail = async () => {
+    const email = window.prompt("Enter email address to send statement to:");
+    if (!email) return;
+
+    try {
+      const result = await sendStatementEmail({
+        supplierId,
+        email,
+        from: dateFrom || undefined,
+        to: dateTo || undefined,
+      }).unwrap();
+      toast.success(result.message || "Statement sent successfully!");
+    } catch {
+      // error toast handled globally
+    }
   };
 
   const handleRecordPayment = async () => {
@@ -508,8 +547,7 @@ const SupplierLedgerModal = ({
                               </p>
                               {typeof purchase.closingBalance === "number" && (
                                 <p className="text-[11px] text-gray-400 mt-0.5">
-                                  Balance ₹
-                                  {purchase.closingBalance.toFixed(2)}
+                                  Balance ₹{purchase.closingBalance.toFixed(2)}
                                 </p>
                               )}
                             </div>
@@ -567,14 +605,22 @@ const SupplierLedgerModal = ({
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium text-gray-900">
-                                  {payment.type === "advance"
-                                    ? "Advance"
-                                    : "Payment"}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-gray-900">
+                                    {payment.type === "advance"
+                                      ? "Advance"
+                                      : "Payment"}
+                                  </p>
+                                  {/* <span className="shrink-0 text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDate(payment.timestamp)}
+                                  </span> */}
+                                </div>
                                 <p className="text-xs text-gray-400 truncate">
-                                  {payment.paymentId} ·{" "}
-                                  {formatDate(payment.timestamp)}
+                                  <span className="shrink-0 text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDate(payment.timestamp)}
+                                  </span>
                                 </p>
                                 {paymentLocked && (
                                   <p className="text-xs text-amber-600 mt-1">
@@ -675,12 +721,39 @@ const SupplierLedgerModal = ({
               {filteredPurchases.length !== 1 ? "s" : ""}
               {hasActiveFilters ? " (filtered)" : ""}
             </p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-3">
+              {filteredPurchases.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleOpenPdf}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    <FileDown className="w-4 h-4" />
+                    View PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendEmail}
+                    disabled={isSending}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                  >
+                    {isSending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Mail className="w-4 h-4" />
+                    )}
+                    {isSending ? "Sending..." : "Send Email"}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -698,10 +771,17 @@ const SuppliersPage = () => {
   } | null>(null);
   const [form, setForm] = useState<SupplierFormData>(emptyForm);
 
-  const { data: suppliers = [], isLoading, isError } = useGetSuppliersQuery(search);
-  const [createSupplier, { isLoading: isCreating }] = useCreateSupplierMutation();
-  const [updateSupplier, { isLoading: isUpdating }] = useUpdateSupplierMutation();
-  const [deleteSupplier, { isLoading: isDeleting }] = useDeleteSupplierMutation();
+  const {
+    data: suppliers = [],
+    isLoading,
+    isError,
+  } = useGetSuppliersQuery(search);
+  const [createSupplier, { isLoading: isCreating }] =
+    useCreateSupplierMutation();
+  const [updateSupplier, { isLoading: isUpdating }] =
+    useUpdateSupplierMutation();
+  const [deleteSupplier, { isLoading: isDeleting }] =
+    useDeleteSupplierMutation();
 
   const totalSuppliers = suppliers.length;
   const totalPayable = suppliers.reduce(

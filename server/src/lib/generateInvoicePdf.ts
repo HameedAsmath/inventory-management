@@ -155,6 +155,31 @@ export function generateInvoicePdf(
 
     y = 85;
 
+    // ===== INVOICE META (Bill # + Date, right-aligned) =====
+    const billDate = new Date(billing.timestamp);
+    const billDateStr = billDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+
+    const metaY = y;
+    const metaLabelW = 50;
+    const metaValueW = 120;
+    const metaRightEdge = pw - m;
+    const metaValueX = metaRightEdge - metaValueW;
+    const metaLabelX = metaValueX - metaLabelW - 6;
+
+    doc.font("Helvetica").fontSize(8.5).fillColor(C.med);
+    tw(doc, "Bill #", metaLabelX, metaY, metaLabelW, "right");
+    doc.font("Helvetica-Bold").fillColor(C.dark);
+    tw(doc, billing.billingId, metaValueX, metaY, metaValueW, "right");
+
+    doc.font("Helvetica").fontSize(8.5).fillColor(C.med);
+    tw(doc, "Date", metaLabelX, metaY + 14, metaLabelW, "right");
+    doc.font("Helvetica-Bold").fillColor(C.dark);
+    tw(doc, billDateStr, metaValueX, metaY + 14, metaValueW, "right");
+
     // ===== CUSTOMER =====
     doc.font("Helvetica-Bold").fontSize(11).fillColor(C.dark);
     t(doc, billing.customer.name, m, y);
@@ -165,6 +190,9 @@ export function generateInvoicePdf(
       t(doc, billing.customer.address, m, y);
       y += 12;
     }
+
+    // Make sure we clear the meta block area before the divider
+    y = Math.max(y, metaY + 28);
 
     // ===== DIVIDER =====
     y += 6;

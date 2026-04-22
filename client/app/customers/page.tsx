@@ -487,14 +487,22 @@ const CustomerBillsModal = ({
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium text-gray-900">
-                                  {payment.type === "advance"
-                                    ? "Advance"
-                                    : "Payment"}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-gray-900">
+                                    {payment.type === "advance"
+                                      ? "Advance"
+                                      : "Payment"}
+                                  </p>
+                                  {/* <span className="shrink-0 text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDate(payment.timestamp)}
+                                  </span> */}
+                                </div>
                                 <p className="text-xs text-gray-400 truncate">
-                                  {payment.paymentId} ·{" "}
-                                  {formatDate(payment.timestamp)}
+                                  <span className="shrink-0 text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDate(payment.timestamp)}
+                                  </span>
                                 </p>
                                 {paymentLocked && (
                                   <p className="text-xs text-amber-600 mt-1">

@@ -3,8 +3,10 @@ import {
   createSupplier,
   deleteSupplier,
   deleteSupplierPayment,
+  emailSupplierStatement,
   getSupplierById,
   getSupplierLedger,
+  getSupplierStatementPdf,
   getSuppliers,
   recordSupplierPayment,
   updateSupplier,
@@ -15,6 +17,8 @@ const router = Router();
 
 router.get("/", getSuppliers);
 router.get("/:supplierId/ledger", getSupplierLedger);
+router.get("/:supplierId/statement/pdf", getSupplierStatementPdf);
+router.post("/:supplierId/statement/email", emailSupplierStatement);
 router.post("/:supplierId/pay", recordSupplierPayment);
 router.patch("/:supplierId/payments/:paymentId", updateSupplierPayment);
 router.delete("/:supplierId/payments/:paymentId", deleteSupplierPayment);
