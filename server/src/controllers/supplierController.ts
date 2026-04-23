@@ -6,6 +6,13 @@ import { sendSupplierStatementEmail } from "../lib/sendEmail.js";
 
 const db: any = prisma;
 
+// Round to 2 decimals so stored/returned balances never drift by tiny Float
+// artifacts (e.g. 12.339999999998) and always compare cleanly to `0` in the UI.
+function round2(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 async function getUserShopDetails(
   userId?: string,
 ): Promise<ShopDetails | undefined> {
@@ -49,11 +56,13 @@ export async function recalculateSupplierBalances(
     _sum: { amount: true },
   });
 
-  const totalPurchased =
-    openingOutstanding + (purchasedAgg?._sum?.totalAmount ?? 0);
-  const totalPaid = paidAgg?._sum?.amount ?? 0;
-  const totalOutstanding = Math.max(0, totalPurchased - totalPaid);
-  const totalCredit = Math.max(0, totalPaid - totalPurchased);
+  const totalPurchased = round2(
+    openingOutstanding + (purchasedAgg?._sum?.totalAmount ?? 0),
+  );
+  const totalPaid = round2(paidAgg?._sum?.amount ?? 0);
+  const net = round2(totalPurchased - totalPaid);
+  const totalOutstanding = net > 0 ? net : 0;
+  const totalCredit = net < 0 ? -net : 0;
 
   return await tx.supplier.update({
     where: { supplierId },
@@ -105,23 +114,34 @@ export const getSuppliers = async (req: Request, res: Response) => {
       orderBy: { name: "asc" },
     });
 
+    // Derive balances directly from raw purchases/payments on every read.
+    // Never trust stored totalOutstanding / totalCredit columns: cumulative
+    // increment/decrement updates + Float precision cause them to drift over
+    // time, which produces mismatches between the supplier list card and the
+    // per-supplier modal (which always recomputes from raw rows).
     const result = suppliers.map((s: any) => {
       const purchasedFromPurchases = s.purchases.reduce(
-        (sum: number, p: any) => sum + p.totalAmount,
+        (sum: number, p: any) => sum + (p.totalAmount ?? 0),
         0,
       );
       const opening = Math.max(0, s.openingOutstanding ?? 0);
-      const totalPurchased = opening + purchasedFromPurchases;
-      const totalPaid = s.payments.reduce(
-        (sum: number, p: any) => sum + p.amount,
-        0,
+      const totalPurchased = round2(opening + purchasedFromPurchases);
+      const totalPaid = round2(
+        s.payments.reduce((sum: number, p: any) => sum + (p.amount ?? 0), 0),
       );
+
+      const net = round2(totalPurchased - totalPaid);
+      const totalOutstanding = net > 0 ? net : 0;
+      const totalCredit = net < 0 ? -net : 0;
+
       const { purchases: _p, payments: _pay, ...rest } = s;
       return {
         ...rest,
+        totalOutstanding,
+        totalCredit,
         totalPurchased,
         totalPaid,
-        balance: s.totalOutstanding,
+        balance: totalOutstanding,
       };
     });
 
@@ -336,7 +356,18 @@ export const recordSupplierPayment = async (req: Request, res: Response) => {
         );
       }
 
-      return { supplier: updatedSupplier, entries: paymentEntries };
+      // Re-derive balances from raw rows so the stored columns can never drift
+      // from the sum-of-purchases / sum-of-payments truth, regardless of how
+      // many incremental updates happen over time.
+      const normalizedSupplier = await recalculateSupplierBalances(
+        tx,
+        supplierId,
+      );
+
+      return {
+        supplier: normalizedSupplier ?? updatedSupplier,
+        entries: paymentEntries,
+      };
     });
 
     res.status(201).json(result);
@@ -458,6 +489,27 @@ export const getSupplierLedger = async (req: Request, res: Response) => {
       orderBy: { purchaseDate: "desc" },
     });
 
+    // Always derive current balances from raw rows so the modal's Payable /
+    // Credit cards never show stale values from the stored columns (same
+    // defence that getSuppliers applies).
+    const opening = Math.max(0, supplier.openingOutstanding ?? 0);
+    const totalPurchased = round2(
+      opening +
+        supplier.purchases.reduce(
+          (sum: number, p: any) => sum + (p.totalAmount ?? 0),
+          0,
+        ),
+    );
+    const totalPaid = round2(
+      supplier.payments.reduce(
+        (sum: number, p: any) => sum + (p.amount ?? 0),
+        0,
+      ),
+    );
+    const net = round2(totalPurchased - totalPaid);
+    const outstanding = net > 0 ? net : 0;
+    const credit = net < 0 ? -net : 0;
+
     res.json({
       supplier: {
         supplierId: supplier.supplierId,
@@ -470,8 +522,10 @@ export const getSupplierLedger = async (req: Request, res: Response) => {
         ? filteredPurchases
         : supplier.purchases,
       payments: supplier.payments,
-      outstanding: supplier.totalOutstanding,
-      credit: supplier.totalCredit,
+      outstanding,
+      credit,
+      totalPurchased,
+      totalPaid,
       openingOutstanding: supplier.openingOutstanding,
     });
   } catch (error) {

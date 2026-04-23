@@ -126,6 +126,8 @@ export interface SupplierLedger {
   payments: SupplierPayment[];
   outstanding: number;
   credit: number;
+  totalPurchased?: number;
+  totalPaid?: number;
   openingOutstanding?: number;
 }
 

@@ -133,6 +133,10 @@ export const createPurchase = async (req: Request, res: Response) => {
         });
       }
 
+      // Re-derive supplier balances from raw rows so the stored columns never
+      // drift from the sum-of-purchases / sum-of-payments truth.
+      await recalculateSupplierBalances(tx, String(supplierId));
+
       return tx.purchase.findUnique({
         where: { purchaseId: createdPurchase.purchaseId },
         include: {

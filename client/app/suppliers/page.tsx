@@ -232,18 +232,39 @@ const SupplierLedgerModal = ({
     });
   }, [payments, dateFrom, dateTo]);
 
-  const includeOpening = !dateFrom && !dateTo;
-  const purchasesTotalInPeriod = filteredPurchases.reduce(
-    (s, p) => s + p.totalAmount,
-    0,
-  );
-  const summaryTotal =
-    purchasesTotalInPeriod + (includeOpening ? openingOutstanding : 0);
-  const summaryPaid = filteredPayments.reduce((s, p) => s + p.amount, 0);
-  const summaryOutstanding = Math.max(0, summaryTotal - summaryPaid);
-  const summaryCredit = Math.max(0, summaryPaid - summaryTotal);
-
   const hasActiveFilters = dateFrom !== "" || dateTo !== "";
+  const includeOpening = !hasActiveFilters;
+
+  // Round to 2 decimals so Float artifacts (e.g. 0.00000000003) never bleed
+  // through as a rogue ₹0.00 in the UI and the numbers exactly match the
+  // server's rounded values.
+  const round2 = (n: number) =>
+    Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+
+  const purchasesTotalInPeriod = round2(
+    filteredPurchases.reduce((s, p) => s + p.totalAmount, 0),
+  );
+  const summaryTotal = round2(
+    purchasesTotalInPeriod + (includeOpening ? openingOutstanding : 0),
+  );
+  const summaryPaid = round2(
+    filteredPayments.reduce((s, p) => s + p.amount, 0),
+  );
+  // When no filter is active, Payable/Credit are exactly the supplier's
+  // current balance (same formula the server uses on the unfiltered ledger).
+  // When a filter IS active, the period-net value can be misleading (e.g. a
+  // period with only a payment would show the supplier as "in credit" even if
+  // they have a large outstanding overall). Prefer the authoritative server
+  // values in that case so the modal always agrees with the supplier list.
+  const periodNet = round2(summaryTotal - summaryPaid);
+  const periodOutstanding = periodNet > 0 ? periodNet : 0;
+  const periodCredit = periodNet < 0 ? -periodNet : 0;
+  const summaryOutstanding = hasActiveFilters
+    ? round2(data?.outstanding ?? periodOutstanding)
+    : periodOutstanding;
+  const summaryCredit = hasActiveFilters
+    ? round2(data?.credit ?? periodCredit)
+    : periodCredit;
   const clearFilters = () => {
     setDateFrom("");
     setDateTo("");
@@ -400,6 +421,11 @@ const SupplierLedgerModal = ({
                   <p className="text-lg font-bold text-amber-800 mt-0.5">
                     ₹{summaryOutstanding.toFixed(2)}
                   </p>
+                  {hasActiveFilters && (
+                    <p className="text-[10px] text-amber-500 mt-0.5">
+                      current total
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-center">
                   <p className="text-xs text-indigo-600 font-medium uppercase tracking-wider">
@@ -408,6 +434,11 @@ const SupplierLedgerModal = ({
                   <p className="text-lg font-bold text-indigo-800 mt-0.5">
                     ₹{summaryCredit.toFixed(2)}
                   </p>
+                  {hasActiveFilters && (
+                    <p className="text-[10px] text-indigo-500 mt-0.5">
+                      current total
+                    </p>
+                  )}
                 </div>
               </div>
               {openingOutstanding > 0 && (
@@ -783,14 +814,40 @@ const SuppliersPage = () => {
   const [deleteSupplier, { isLoading: isDeleting }] =
     useDeleteSupplierMutation();
 
+  // Payable and Credit are mutually exclusive per supplier, so derive them
+  // from the net (totalPurchased - totalPaid) whenever possible. This matches
+  // the modal's formula exactly and avoids any dependency on the stored
+  // totalOutstanding / totalCredit DB columns.
+  const EPS = 0.005;
+  const supplierBalance = (sup: Supplier) => {
+    const purchased = sup.totalPurchased ?? 0;
+    const paid = sup.totalPaid ?? 0;
+    if (purchased || paid) {
+      const net = Math.round((purchased - paid) * 100) / 100;
+      return {
+        payable: net > EPS ? net : 0,
+        credit: net < -EPS ? -net : 0,
+      };
+    }
+    const payable = sup.totalOutstanding ?? sup.balance ?? 0;
+    const credit = sup.totalCredit ?? 0;
+    return {
+      payable: payable > EPS ? payable : 0,
+      credit: credit > EPS ? credit : 0,
+    };
+  };
+
+  const round2Total = (n: number) =>
+    Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
   const totalSuppliers = suppliers.length;
-  const totalPayable = suppliers.reduce(
-    (s, sup) => s + (sup.totalOutstanding ?? sup.balance ?? 0),
-    0,
+  const totalPayable = round2Total(
+    suppliers.reduce((s, sup) => s + supplierBalance(sup).payable, 0),
   );
-  const totalPaid = suppliers.reduce((s, sup) => s + (sup.totalPaid ?? 0), 0);
+  const totalPaid = round2Total(
+    suppliers.reduce((s, sup) => s + (sup.totalPaid ?? 0), 0),
+  );
   const suppliersWithDues = suppliers.filter(
-    (sup) => (sup.totalOutstanding ?? sup.balance ?? 0) > 0,
+    (sup) => supplierBalance(sup).payable > 0,
   ).length;
 
   const clearForm = () => setForm(emptyForm);
@@ -1000,8 +1057,7 @@ const SuppliersPage = () => {
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {sortedSuppliers.map((supplier, index) => {
-            const payable = supplier.totalOutstanding ?? supplier.balance ?? 0;
-            const credit = supplier.totalCredit ?? 0;
+            const { payable, credit } = supplierBalance(supplier);
             return (
               <div
                 key={supplier.supplierId}
