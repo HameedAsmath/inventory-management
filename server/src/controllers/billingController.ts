@@ -60,31 +60,42 @@ export const createBilling = async (req: Request, res: Response) => {
       }
     }
 
-    // Validate all products exist and have sufficient stock
-    const productIds = items.map((item: any) => item.productId);
+    // Validate all products exist and have sufficient stock. The same product
+    // is allowed to appear on multiple lines (duplicates in `items`), so we
+    // de-dupe productIds before checking existence and aggregate requested
+    // quantities per product before checking stock.
+    const uniqueProductIds = Array.from(
+      new Set(items.map((item: any) => item.productId)),
+    );
     const products = await prisma.products.findMany({
       where: {
-        productId: { in: productIds },
+        productId: { in: uniqueProductIds },
       },
     });
 
-    if (products.length !== productIds.length) {
+    if (products.length !== uniqueProductIds.length) {
       return res
         .status(400)
         .json({ message: "One or more products not found" });
     }
 
-    // Check stock availability
+    const requestedQtyByProduct = new Map<string, number>();
     for (const item of items) {
-      const product = products.find((p) => p.productId === item.productId);
+      requestedQtyByProduct.set(
+        item.productId,
+        (requestedQtyByProduct.get(item.productId) || 0) + Number(item.quantity || 0),
+      );
+    }
+    for (const [productId, requestedQty] of requestedQtyByProduct) {
+      const product = products.find((p) => p.productId === productId);
       if (!product) {
         return res.status(400).json({
-          message: `Product ${item.productId} not found`,
+          message: `Product ${productId} not found`,
         });
       }
-      if (product.stockQuantity < item.quantity) {
+      if (product.stockQuantity < requestedQty) {
         return res.status(400).json({
-          message: `Insufficient stock for product ${product.name}. Available: ${product.stockQuantity}, Requested: ${item.quantity}`,
+          message: `Insufficient stock for product ${product.name}. Available: ${product.stockQuantity}, Requested: ${requestedQty}`,
         });
       }
     }
@@ -141,40 +152,35 @@ export const createBilling = async (req: Request, res: Response) => {
         },
       });
 
-      // Create billing items and update product stock
-      const billingItems = await Promise.all(
-        items.map(async (item: any) => {
-          const gross = item.quantity * item.price;
-          const discount = item.discount || 0;
-          const subtotal = Math.max(0, gross - discount);
+      // Create billing items and update product stock. Run sequentially (not
+      // Promise.all) so that two lines for the same product decrement stock
+      // atomically without racing.
+      for (const item of items as any[]) {
+        const gross = item.quantity * item.price;
+        const discount = item.discount || 0;
+        const subtotal = Math.max(0, gross - discount);
 
-          // Update product stock
-          await tx.products.update({
-            where: { productId: item.productId },
-            data: {
-              stockQuantity: {
-                decrement: item.quantity,
-              },
+        await tx.products.update({
+          where: { productId: item.productId },
+          data: {
+            stockQuantity: {
+              decrement: item.quantity,
             },
-          });
+          },
+        });
 
-          // Create billing item with explicit billingItemId
-          return await tx.billingItem.create({
-            data: {
-              billingItemId: randomUUID(),
-              billingId: billing.billingId,
-              productId: item.productId,
-              quantity: item.quantity,
-              price: item.price,
-              discount,
-              subtotal,
-            },
-            include: {
-              product: true,
-            },
-          });
-        }),
-      );
+        await tx.billingItem.create({
+          data: {
+            billingItemId: randomUUID(),
+            billingId: billing.billingId,
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            discount,
+            subtotal,
+          },
+        });
+      }
 
       // Return billing with items and customer
       return await tx.billing.findUnique({
@@ -406,23 +412,36 @@ export const updateBilling = async (req: Request, res: Response) => {
 
       await tx.billingItem.deleteMany({ where: { billingId } });
 
-      const productIds = items.map((item: any) => item.productId);
+      // De-dupe productIds: the same product can appear on multiple lines of
+      // the bill, so existence and stock must be validated on the aggregated
+      // quantities rather than per-line.
+      const uniqueProductIds = Array.from(
+        new Set(items.map((item: any) => item.productId)),
+      );
       const products = await tx.products.findMany({
-        where: { productId: { in: productIds } },
+        where: { productId: { in: uniqueProductIds } },
       });
 
-      if (products.length !== productIds.length) {
+      if (products.length !== uniqueProductIds.length) {
         throw new Error("PRODUCT_NOT_FOUND");
       }
 
+      const requestedQtyByProduct = new Map<string, number>();
       for (const item of items) {
-        const product = products.find((p) => p.productId === item.productId);
+        requestedQtyByProduct.set(
+          item.productId,
+          (requestedQtyByProduct.get(item.productId) || 0) +
+            Number(item.quantity || 0),
+        );
+      }
+      for (const [productId, requestedQty] of requestedQtyByProduct) {
+        const product = products.find((p) => p.productId === productId);
         if (!product) {
           throw new Error("PRODUCT_NOT_FOUND");
         }
-        if (product.stockQuantity < item.quantity) {
+        if (product.stockQuantity < requestedQty) {
           throw new Error(
-            `INSUFFICIENT_STOCK|${product.name}|${product.stockQuantity}|${item.quantity}`,
+            `INSUFFICIENT_STOCK|${product.name}|${product.stockQuantity}|${requestedQty}`,
           );
         }
       }

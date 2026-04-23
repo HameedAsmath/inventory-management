@@ -37,6 +37,7 @@ import CreateProductModal from "../products/CreateProductModal";
 type PriceType = "price1" | "price2" | "custom";
 
 type BillingItemInput = {
+  lineId: string;
   productId: string;
   productName: string;
   quantityInput: string;
@@ -198,17 +199,16 @@ const CreateBillingModal = ({
       .map((x) => x.p);
   }, [products, productSearch]);
 
-  /** Indices in `products` that can be chosen from the keyboard (in stock, not on bill). */
+  /** Indices in `products` that can be chosen from the keyboard (in stock). */
   const billingSelectableProductIndices = useMemo(() => {
     if (!searchedProducts?.length) return [];
     const out: number[] = [];
     searchedProducts.forEach((p, i) => {
-      if (items.some((x) => x.productId === p.productId)) return;
       if (p.stockQuantity <= 0) return;
       out.push(i);
     });
     return out;
-  }, [searchedProducts, items]);
+  }, [searchedProducts]);
 
   const productDropdownOpen =
     showProductDropdown &&
@@ -287,15 +287,6 @@ const CreateBillingModal = ({
   };
 
   const handleAddProduct = (product: Product): boolean => {
-    if (items.find((item) => item.productId === product.productId)) {
-      setError(
-        `${product.name} is already added. Adjust the quantity instead.`,
-      );
-      setShowProductDropdown(false);
-      setProductSearch("");
-      return false;
-    }
-
     if (product.stockQuantity <= 0) {
       setError(`${product.name} is out of stock.`);
       setShowProductDropdown(false);
@@ -306,6 +297,7 @@ const CreateBillingModal = ({
     setItems([
       ...items,
       {
+        lineId: v4(),
         productId: product.productId,
         productName: product.name,
         quantityInput: "1",
@@ -324,14 +316,14 @@ const CreateBillingModal = ({
     return true;
   };
 
-  const handleRemoveItem = (productId: string) => {
-    setItems(items.filter((item) => item.productId !== productId));
+  const handleRemoveItem = (lineId: string) => {
+    setItems(items.filter((item) => item.lineId !== lineId));
   };
 
-  const handlePriceTypeChange = (productId: string, priceType: PriceType) => {
+  const handlePriceTypeChange = (lineId: string, priceType: PriceType) => {
     setItems(
       items.map((item) => {
-        if (item.productId !== productId) return item;
+        if (item.lineId !== lineId) return item;
         if (priceType === "custom") {
           // Seed the custom input with the current price if empty, so users
           // can tweak rather than start from scratch.
@@ -350,18 +342,16 @@ const CreateBillingModal = ({
           ...item,
           selectedPriceType: priceType,
           price:
-            priceType === "price1"
-              ? item.price1
-              : (item.price2 ?? item.price1),
+            priceType === "price1" ? item.price1 : (item.price2 ?? item.price1),
         };
       }),
     );
   };
 
-  const handleCustomPriceChange = (productId: string, value: string) => {
+  const handleCustomPriceChange = (lineId: string, value: string) => {
     setItems(
       items.map((item) => {
-        if (item.productId !== productId) return item;
+        if (item.lineId !== lineId) return item;
         return {
           ...item,
           customPriceInput: value,
@@ -371,19 +361,19 @@ const CreateBillingModal = ({
     );
   };
 
-  const handleDiscountChange = (productId: string, value: string) => {
+  const handleDiscountChange = (lineId: string, value: string) => {
     setItems(
       items.map((item) =>
-        item.productId === productId ? { ...item, discountInput: value } : item,
+        item.lineId === lineId ? { ...item, discountInput: value } : item,
       ),
     );
   };
 
-  const handleQuantityInputChange = (productId: string, value: string) => {
+  const handleQuantityInputChange = (lineId: string, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
     setItems(
       items.map((item) => {
-        if (item.productId !== productId) return item;
+        if (item.lineId !== lineId) return item;
         if (value === "") return { ...item, quantityInput: "" };
         const n = parseInt(value, 10);
         if (isNaN(n)) return { ...item, quantityInput: value };
@@ -394,10 +384,10 @@ const CreateBillingModal = ({
     );
   };
 
-  const handleQuantityStep = (productId: string, delta: number) => {
+  const handleQuantityStep = (lineId: string, delta: number) => {
     setItems(
       items.map((item) => {
-        if (item.productId !== productId) return item;
+        if (item.lineId !== lineId) return item;
         const t = item.quantityInput.trim();
         const cur = t === "" ? 0 : parseInt(t, 10);
         const base = t === "" || isNaN(cur) ? 0 : cur;
@@ -430,6 +420,35 @@ const CreateBillingModal = ({
       if (item.selectedPriceType === "custom" && item.price <= 0) {
         setError(
           `Enter a valid custom price for ${item.productName} (greater than 0).`,
+        );
+        return;
+      }
+    }
+
+    // When the same product is added on multiple rows, the combined qty
+    // must still fit within available stock for that product.
+    const aggregateByProduct = new Map<
+      string,
+      { name: string; qty: number; maxStock: number }
+    >();
+    for (const item of items) {
+      const qty = parseInt(item.quantityInput.trim(), 10);
+      const existing = aggregateByProduct.get(item.productId);
+      if (existing) {
+        existing.qty += qty;
+        existing.maxStock = Math.max(existing.maxStock, item.maxStock);
+      } else {
+        aggregateByProduct.set(item.productId, {
+          name: item.productName,
+          qty,
+          maxStock: item.maxStock,
+        });
+      }
+    }
+    for (const { name, qty, maxStock } of aggregateByProduct.values()) {
+      if (qty > maxStock) {
+        setError(
+          `Total quantity for ${name} across all lines (${qty}) exceeds available stock (${maxStock}).`,
         );
         return;
       }
@@ -526,8 +545,7 @@ const CreateBillingModal = ({
           const maxStock = (p.stockQuantity ?? 0) + line.quantity;
           // Stored discount is the total line discount. Convert back to per-unit
           // for the input so current bills keep the same numbers on save.
-          const perUnit =
-            line.quantity > 0 ? line.discount / line.quantity : 0;
+          const perUnit = line.quantity > 0 ? line.discount / line.quantity : 0;
           const disc =
             perUnit > 0
               ? Number.isInteger(perUnit)
@@ -535,6 +553,7 @@ const CreateBillingModal = ({
                 : perUnit.toFixed(2)
               : "";
           return {
+            lineId: v4(),
             productId: line.productId,
             productName: p.name,
             quantityInput: String(line.quantity),
@@ -904,9 +923,6 @@ const CreateBillingModal = ({
                         aria-label="Product search results"
                       >
                         {searchedProducts.map((product, idx) => {
-                          const alreadyAdded = items.some(
-                            (i) => i.productId === product.productId,
-                          );
                           const lowTh = lowStockThreshold(product);
                           const isLowStock =
                             product.stockQuantity > 0 &&
@@ -921,23 +937,17 @@ const CreateBillingModal = ({
                               role="option"
                               aria-selected={isHighlighted}
                               onMouseEnter={() => {
-                                if (
-                                  !alreadyAdded &&
-                                  product.stockQuantity > 0
-                                ) {
+                                if (product.stockQuantity > 0) {
                                   setProductHighlightIndex(idx);
                                 }
                               }}
                               onClick={() => handleAddProduct(product)}
-                              disabled={alreadyAdded}
                               className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between border-b border-gray-50 last:border-b-0 transition-colors ${
-                                alreadyAdded
-                                  ? "bg-gray-50 opacity-50 cursor-not-allowed"
-                                  : product.stockQuantity <= 0
-                                    ? "opacity-50"
-                                    : isHighlighted
-                                      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
-                                      : "hover:bg-gray-50"
+                                product.stockQuantity <= 0
+                                  ? "opacity-50"
+                                  : isHighlighted
+                                    ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+                                    : "hover:bg-gray-50"
                               }`}
                             >
                               <div className="flex items-center gap-3">
@@ -947,11 +957,6 @@ const CreateBillingModal = ({
                                 <div>
                                   <p className="font-medium text-gray-800">
                                     {product.name}
-                                    {alreadyAdded && (
-                                      <span className="ml-2 text-xs text-gray-400">
-                                        (added)
-                                      </span>
-                                    )}
                                   </p>
                                   <p className="text-xs text-gray-400">
                                     {product.serialNumber
@@ -1027,7 +1032,7 @@ const CreateBillingModal = ({
                       <tbody>
                         {items.map((item, idx) => (
                           <tr
-                            key={item.productId}
+                            key={item.lineId}
                             className={
                               idx !== 0 ? "border-t border-gray-100" : ""
                             }
@@ -1045,7 +1050,7 @@ const CreateBillingModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityStep(item.productId, -1)
+                                    handleQuantityStep(item.lineId, -1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
@@ -1060,7 +1065,7 @@ const CreateBillingModal = ({
                                   value={item.quantityInput}
                                   onChange={(e) =>
                                     handleQuantityInputChange(
-                                      item.productId,
+                                      item.lineId,
                                       e.target.value,
                                     )
                                   }
@@ -1069,7 +1074,7 @@ const CreateBillingModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleQuantityStep(item.productId, 1)
+                                    handleQuantityStep(item.lineId, 1)
                                   }
                                   className="px-2 py-1 text-gray-500 hover:bg-gray-100 transition-colors text-xs font-bold"
                                 >
@@ -1083,7 +1088,7 @@ const CreateBillingModal = ({
                                   value={item.selectedPriceType}
                                   onChange={(e) =>
                                     handlePriceTypeChange(
-                                      item.productId,
+                                      item.lineId,
                                       e.target.value as PriceType,
                                     )
                                   }
@@ -1111,7 +1116,7 @@ const CreateBillingModal = ({
                                         if (v !== "" && !/^\d*\.?\d*$/.test(v))
                                           return;
                                         handleCustomPriceChange(
-                                          item.productId,
+                                          item.lineId,
                                           v,
                                         );
                                       }}
@@ -1133,7 +1138,7 @@ const CreateBillingModal = ({
                                 value={item.discountInput}
                                 onChange={(e) =>
                                   handleDiscountChange(
-                                    item.productId,
+                                    item.lineId,
                                     e.target.value,
                                   )
                                 }
@@ -1200,7 +1205,7 @@ const CreateBillingModal = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleRemoveItem(item.productId)
+                                    handleRemoveItem(item.lineId)
                                   }
                                   className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                                   title="Remove from bill"
