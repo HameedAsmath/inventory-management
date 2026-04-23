@@ -31,7 +31,8 @@ async function getUserShopDetails(
 
 export const createBilling = async (req: Request, res: Response) => {
   try {
-    const { billingId, customerId, totalAmount, pnfCharges, items } = req.body;
+    const { billingId, customerId, totalAmount, pnfCharges, items, billDate } =
+      req.body;
 
     if (!customerId || !totalAmount || !items || !Array.isArray(items)) {
       return res.status(400).json({
@@ -43,6 +44,20 @@ export const createBilling = async (req: Request, res: Response) => {
       return res.status(400).json({
         message: "At least one item is required",
       });
+    }
+
+    // Optional user-picked date for the bill. Falls back to now if absent or
+    // invalid. Accepts both ISO strings and yyyy-mm-dd; the latter is coerced
+    // to the start of that day in the server's local TZ so a date-only picker
+    // doesn't shift to the previous day under UTC parsing.
+    let billTimestamp: Date | undefined;
+    if (billDate) {
+      const raw = String(billDate).trim();
+      const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+      const parsed = dateOnly ? new Date(`${raw}T12:00:00`) : new Date(raw);
+      if (!isNaN(parsed.getTime())) {
+        billTimestamp = parsed;
+      }
     }
 
     // Validate all products exist and have sufficient stock
@@ -114,6 +129,7 @@ export const createBilling = async (req: Request, res: Response) => {
           pnfCharges: pnfCharges || 0,
           openingBalance,
           closingBalance,
+          ...(billTimestamp && { timestamp: billTimestamp }),
         },
       });
 
@@ -327,7 +343,19 @@ export const emailBillingInvoice = async (req: Request, res: Response) => {
 export const updateBilling = async (req: Request, res: Response) => {
   try {
     const billingId = String(req.params.billingId);
-    const { totalAmount, pnfCharges, items } = req.body;
+    const { totalAmount, pnfCharges, items, billDate } = req.body;
+
+    // Optional user-picked date for the bill. Parsed the same way as in
+    // createBilling (noon local for date-only inputs to avoid UTC drift).
+    let billTimestamp: Date | undefined;
+    if (billDate) {
+      const raw = String(billDate).trim();
+      const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+      const parsed = dateOnly ? new Date(`${raw}T12:00:00`) : new Date(raw);
+      if (!isNaN(parsed.getTime())) {
+        billTimestamp = parsed;
+      }
+    }
 
     if (!totalAmount || !items || !Array.isArray(items)) {
       return res.status(400).json({
@@ -455,6 +483,7 @@ export const updateBilling = async (req: Request, res: Response) => {
           totalAmount: computedTotalAmount,
           pnfCharges: pnfCharges || 0,
           closingBalance: newClosingBalance,
+          ...(billTimestamp && { timestamp: billTimestamp }),
         },
       });
 

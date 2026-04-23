@@ -28,6 +28,7 @@ import {
   Package,
   CheckCircle2,
   Edit2,
+  Calendar,
 } from "lucide-react";
 import { v4 } from "uuid";
 import { toast } from "sonner";
@@ -104,6 +105,7 @@ type CreateBillingData = {
   customerId: string;
   totalAmount: number;
   pnfCharges: number;
+  billDate?: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -137,8 +139,18 @@ const CreateBillingModal = ({
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productHighlightIndex, setProductHighlightIndex] = useState(-1);
   const productHighlightRef = useRef<HTMLButtonElement | null>(null);
+  const itemsScrollRef = useRef<HTMLDivElement | null>(null);
+  const prevItemsCountRef = useRef(0);
   const [pnfEnabled, setPnfEnabled] = useState(false);
   const [pnfAmount, setPnfAmount] = useState("");
+  const todayYmd = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const [billDate, setBillDate] = useState(todayYmd);
   const [error, setError] = useState("");
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productBeingEdited, setProductBeingEdited] = useState<Product | null>(
@@ -217,6 +229,21 @@ const CreateBillingModal = ({
       productHighlightRef.current?.scrollIntoView({ block: "nearest" });
     }
   }, [activeProductDropdownIndex]);
+
+  // Auto-scroll the items list to the newly added row so it's always visible,
+  // even when the list has grown past the scroll container's max height.
+  useEffect(() => {
+    const prev = prevItemsCountRef.current;
+    if (items.length > prev) {
+      const el = itemsScrollRef.current;
+      if (el) {
+        requestAnimationFrame(() => {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        });
+      }
+    }
+    prevItemsCountRef.current = items.length;
+  }, [items.length]);
 
   const itemsTotal = items.reduce((sum, item) => {
     const q = quantityForPricing(item.quantityInput, item.maxStock);
@@ -423,6 +450,7 @@ const CreateBillingModal = ({
       const updatePayload: UpdateBillingRequest = {
         totalAmount,
         pnfCharges: pnfValue,
+        billDate: billDate || todayYmd(),
         items: linePayload,
       };
       try {
@@ -440,6 +468,7 @@ const CreateBillingModal = ({
       customerId,
       totalAmount,
       pnfCharges: pnfValue,
+      billDate: billDate || todayYmd(),
       items: linePayload,
     };
     onCreate(createData);
@@ -456,6 +485,7 @@ const CreateBillingModal = ({
     setProductHighlightIndex(-1);
     setPnfEnabled(false);
     setPnfAmount("");
+    setBillDate(todayYmd());
     setProductFormOpen(false);
     setProductBeingEdited(null);
   };
@@ -471,6 +501,15 @@ const CreateBillingModal = ({
       setPnfAmount(
         editingBilling.pnfCharges > 0 ? String(editingBilling.pnfCharges) : "",
       );
+      const ts = editingBilling.timestamp
+        ? new Date(editingBilling.timestamp)
+        : null;
+      if (ts && !isNaN(ts.getTime())) {
+        const y = ts.getFullYear();
+        const m = String(ts.getMonth() + 1).padStart(2, "0");
+        const d = String(ts.getDate()).padStart(2, "0");
+        setBillDate(`${y}-${m}-${d}`);
+      }
       setItems(
         editingBilling.BillingItem.map((line) => {
           const p = line.product;
@@ -791,6 +830,41 @@ const CreateBillingModal = ({
                 )}
               </div>
 
+              {/* SECTION: BILL DATE */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center">
+                    <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-800">
+                    Bill Date
+                  </h3>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="date"
+                    value={billDate}
+                    max={todayYmd()}
+                    onChange={(e) => setBillDate(e.target.value)}
+                    className="rounded-lg border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                  {billDate !== todayYmd() && (
+                    <button
+                      type="button"
+                      onClick={() => setBillDate(todayYmd())}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Reset to today
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-gray-500">
+                  {isEditMode
+                    ? "Change the date shown on the invoice PDF for this bill."
+                    : "Used as the date on the invoice PDF. Defaults to today."}
+                </p>
+              </div>
+
               {/* SECTION: PRODUCTS */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
@@ -923,7 +997,10 @@ const CreateBillingModal = ({
 
                 {/* ITEMS TABLE */}
                 {items.length > 0 ? (
-                  <div className="mt-4 bg-white rounded-lg border border-gray-200 max-h-[270px] overflow-y-auto">
+                  <div
+                    ref={itemsScrollRef}
+                    className="mt-4 bg-white rounded-lg border border-gray-200 max-h-[270px] overflow-y-auto"
+                  >
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">

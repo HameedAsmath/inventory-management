@@ -255,6 +255,7 @@ export interface CreateBillingRequest {
   customerId: string;
   totalAmount: number;
   pnfCharges: number;
+  billDate?: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -266,6 +267,7 @@ export interface CreateBillingRequest {
 export interface UpdateBillingRequest {
   totalAmount: number;
   pnfCharges: number;
+  billDate?: string;
   items: Array<{
     productId: string;
     quantity: number;
