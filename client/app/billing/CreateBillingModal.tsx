@@ -295,7 +295,6 @@ const CreateBillingModal = ({
     }
 
     setItems([
-      ...items,
       {
         lineId: v4(),
         productId: product.productId,
@@ -309,6 +308,7 @@ const CreateBillingModal = ({
         discountInput: "",
         maxStock: product.stockQuantity,
       },
+      ...items,
     ]);
     setProductSearch("");
     setShowProductDropdown(false);
