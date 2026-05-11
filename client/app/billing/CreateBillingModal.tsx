@@ -140,8 +140,6 @@ const CreateBillingModal = ({
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productHighlightIndex, setProductHighlightIndex] = useState(-1);
   const productHighlightRef = useRef<HTMLButtonElement | null>(null);
-  const itemsScrollRef = useRef<HTMLDivElement | null>(null);
-  const prevItemsCountRef = useRef(0);
   const [pnfEnabled, setPnfEnabled] = useState(false);
   const [pnfAmount, setPnfAmount] = useState("");
   const todayYmd = () => {
@@ -229,21 +227,6 @@ const CreateBillingModal = ({
       productHighlightRef.current?.scrollIntoView({ block: "nearest" });
     }
   }, [activeProductDropdownIndex]);
-
-  // Auto-scroll the items list to the newly added row so it's always visible,
-  // even when the list has grown past the scroll container's max height.
-  useEffect(() => {
-    const prev = prevItemsCountRef.current;
-    if (items.length > prev) {
-      const el = itemsScrollRef.current;
-      if (el) {
-        requestAnimationFrame(() => {
-          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-        });
-      }
-    }
-    prevItemsCountRef.current = items.length;
-  }, [items.length]);
 
   const itemsTotal = items.reduce((sum, item) => {
     const q = quantityForPricing(item.quantityInput, item.maxStock);
@@ -1002,10 +985,7 @@ const CreateBillingModal = ({
 
                 {/* ITEMS TABLE */}
                 {items.length > 0 ? (
-                  <div
-                    ref={itemsScrollRef}
-                    className="mt-4 bg-white rounded-lg border border-gray-200 max-h-[270px] overflow-y-auto"
-                  >
+                  <div className="mt-4 bg-white rounded-lg border border-gray-200 max-h-[270px] overflow-y-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
